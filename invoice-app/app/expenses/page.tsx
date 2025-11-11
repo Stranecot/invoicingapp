@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Plus, Edit, Trash2, Download, Filter } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -69,7 +69,7 @@ interface Stats {
   }>;
 }
 
-export default function ExpensesPage() {
+function ExpensesContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -584,5 +584,24 @@ export default function ExpensesPage() {
         <ExpenseForm expense={editingExpense} onSubmit={handleSubmit} onCancel={closeModal} />
       </Modal>
     </div>
+  );
+}
+
+export default function ExpensesPage() {
+  return (
+    <Suspense fallback={
+      <div className="space-y-6">
+        <div className="flex justify-between items-center gap-4">
+          <h1 className="text-3xl font-bold text-gray-900">Expenses</h1>
+        </div>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <div className="text-gray-600">Loading...</div>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <ExpensesContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Plus, Edit, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,7 +17,7 @@ interface Customer {
   address?: string;
 }
 
-export default function CustomersPage() {
+function CustomersContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -298,5 +298,24 @@ export default function CustomersPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+export default function CustomersPage() {
+  return (
+    <Suspense fallback={
+      <div className="space-y-6">
+        <div className="flex justify-between items-center gap-4">
+          <h1 className="text-3xl font-bold text-gray-900">Customers</h1>
+        </div>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <div className="text-gray-600">Loading...</div>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <CustomersContent />
+    </Suspense>
   );
 }
