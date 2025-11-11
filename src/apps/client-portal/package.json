@@ -1,5 +1,5 @@
 {
-  "name": "invoice-app",
+  "name": "@invoice-app/client-portal",
   "version": "0.1.0",
   "private": true,
   "scripts": {

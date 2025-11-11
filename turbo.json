@@ -1,0 +1,48 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        "CLERK_SECRET_KEY",
+        "NEXT_PUBLIC_CLERK_SIGN_IN_URL",
+        "NEXT_PUBLIC_CLERK_SIGN_UP_URL",
+        "DATABASE_URL"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "env": [
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        "CLERK_SECRET_KEY",
+        "NEXT_PUBLIC_CLERK_SIGN_IN_URL",
+        "NEXT_PUBLIC_CLERK_SIGN_UP_URL",
+        "DATABASE_URL"
+      ]
+    },
+    "start": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
+    },
+    "clean": {
+      "cache": false
+    }
+  },
+  "globalEnv": [
+    "NODE_ENV"
+  ],
+  "globalPassThroughEnv": [
+    "CI"
+  ]
+}

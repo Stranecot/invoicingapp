@@ -1,0 +1,24 @@
+{
+  "name": "invoice-app-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "src/apps/*",
+    "src/packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "npm@11.6.2"
+}
