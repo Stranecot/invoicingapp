@@ -7,10 +7,11 @@
     "build": "next build --turbopack",
     "start": "next start -p 3001",
     "lint": "eslint",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed-production.ts",
+    "seed:dev": "tsx prisma/seed.ts"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed-production.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.34.0",

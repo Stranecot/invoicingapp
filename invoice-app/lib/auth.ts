@@ -13,6 +13,7 @@ export type UserWithRole = {
 /**
  * Get the current authenticated user from the database
  * Throws an error if not authenticated
+ * Auto-creates user if they exist in Clerk but not in database
  */
 export async function getCurrentUser(): Promise<UserWithRole> {
   const { userId } = await auth();
@@ -21,7 +22,7 @@ export async function getCurrentUser(): Promise<UserWithRole> {
     throw new Error('Unauthorized');
   }
 
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { clerkId: userId },
     select: {
       id: true,
@@ -32,8 +33,51 @@ export async function getCurrentUser(): Promise<UserWithRole> {
     },
   });
 
+  // If user doesn't exist in database but is authenticated in Clerk,
+  // create them automatically (webhook might have failed)
   if (!user) {
-    throw new Error('User not found in database');
+    const clerkUser = await currentUser();
+
+    if (!clerkUser) {
+      throw new Error('Unauthorized');
+    }
+
+    const primaryEmail = clerkUser.emailAddresses.find(
+      (email) => email.id === clerkUser.primaryEmailAddressId
+    );
+
+    if (!primaryEmail) {
+      throw new Error('No primary email found');
+    }
+
+    // Create user with default company
+    const createdUser = await prisma.user.create({
+      data: {
+        clerkId: userId,
+        email: primaryEmail.emailAddress,
+        name: clerkUser.firstName && clerkUser.lastName
+          ? `${clerkUser.firstName} ${clerkUser.lastName}`
+          : clerkUser.firstName || clerkUser.lastName || null,
+        role: 'USER',
+        company: {
+          create: {
+            name: 'My Company',
+            email: primaryEmail.emailAddress,
+            taxRate: 0,
+          },
+        },
+      },
+      select: {
+        id: true,
+        clerkId: true,
+        email: true,
+        name: true,
+        role: true,
+      },
+    });
+
+    console.log('Auto-created user from Clerk:', createdUser.email);
+    return createdUser;
   }
 
   return user;
