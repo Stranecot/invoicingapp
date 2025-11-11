@@ -1,6 +1,5 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
-import { prisma } from './prisma';
-import { Role } from '@prisma/client';
+import { prisma, Role } from '@invoice-app/database';
 
 export type UserWithRole = {
   id: string;

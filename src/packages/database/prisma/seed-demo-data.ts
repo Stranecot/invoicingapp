@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../src/index';
 
 async function main() {
   console.log('Starting demo data seed for existing users...');
