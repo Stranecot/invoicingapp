@@ -3,6 +3,51 @@ import { prisma } from '../src/index';
 async function main() {
   console.log('Starting seed...');
 
+  // Create Sample Organizations
+  const org1 = await prisma.organization.create({
+    data: {
+      name: 'Acme Corporation',
+      slug: 'acme-corp',
+      billingEmail: 'billing@acmecorp.com',
+      status: 'ACTIVE',
+      plan: 'PRO',
+      maxUsers: 10,
+      settings: {
+        create: {
+          primaryColor: '#3B82F6',
+          invoicePrefix: 'ACME',
+          taxRate: 10,
+          currency: 'USD',
+          allowSignup: true,
+          requireApproval: false,
+        },
+      },
+    },
+  });
+  console.log('Created organization:', org1.name);
+
+  const org2 = await prisma.organization.create({
+    data: {
+      name: 'Tech Consulting Pro',
+      slug: 'tech-consulting-pro',
+      billingEmail: 'billing@techconsulting.com',
+      status: 'ACTIVE',
+      plan: 'FREE',
+      maxUsers: 5,
+      settings: {
+        create: {
+          primaryColor: '#10B981',
+          invoicePrefix: 'TCP',
+          taxRate: 8.5,
+          currency: 'USD',
+          allowSignup: true,
+          requireApproval: true,
+        },
+      },
+    },
+  });
+  console.log('Created organization:', org2.name);
+
   // Create Admin User
   const admin = await prisma.user.create({
     data: {
@@ -21,6 +66,7 @@ async function main() {
       email: 'john@business.com',
       name: 'John Business',
       role: 'USER',
+      organizationId: org1.id,
       company: {
         create: {
           name: 'Acme Corporation',
@@ -41,6 +87,7 @@ async function main() {
       email: 'sarah@consulting.com',
       name: 'Sarah Consultant',
       role: 'USER',
+      organizationId: org2.id,
       company: {
         create: {
           name: 'Tech Consulting Pro',
@@ -98,6 +145,7 @@ async function main() {
   const customer1 = await prisma.customer.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       name: 'John Smith',
       email: 'john.smith@example.com',
       phone: '+1 (555) 234-5678',
@@ -108,6 +156,7 @@ async function main() {
   const customer2 = await prisma.customer.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       name: 'Jane Doe',
       email: 'jane.doe@example.com',
       phone: '+1 (555) 345-6789',
@@ -118,6 +167,7 @@ async function main() {
   const customer3 = await prisma.customer.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       name: 'Tech Solutions Inc.',
       email: 'billing@techsolutions.com',
       phone: '+1 (555) 456-7890',
@@ -131,6 +181,7 @@ async function main() {
   const customer4 = await prisma.customer.create({
     data: {
       userId: user2.id,
+      organizationId: org2.id,
       name: 'Global Enterprises',
       email: 'accounts@globalent.com',
       phone: '+1 (555) 111-2222',
@@ -141,6 +192,7 @@ async function main() {
   const customer5 = await prisma.customer.create({
     data: {
       userId: user2.id,
+      organizationId: org2.id,
       name: 'Startup XYZ',
       email: 'billing@startupxyz.com',
       phone: '+1 (555) 333-4444',
@@ -171,6 +223,7 @@ async function main() {
   const invoice1 = await prisma.invoice.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       invoiceNumber: 'INV-001',
       customerId: customer1.id,
       date: today,
@@ -202,6 +255,7 @@ async function main() {
   const invoice2 = await prisma.invoice.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       invoiceNumber: 'INV-002',
       customerId: customer2.id,
       date: new Date(today.getTime() - 10 * 24 * 60 * 60 * 1000),
@@ -233,6 +287,7 @@ async function main() {
   const invoice3 = await prisma.invoice.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       invoiceNumber: 'INV-003',
       customerId: customer3.id,
       date: new Date(today.getTime() - 40 * 24 * 60 * 60 * 1000),
@@ -258,6 +313,7 @@ async function main() {
   const invoice4 = await prisma.invoice.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       invoiceNumber: 'INV-004',
       customerId: customer1.id,
       date: today,
@@ -285,6 +341,7 @@ async function main() {
   await prisma.invoice.create({
     data: {
       userId: user2.id,
+      organizationId: org2.id,
       invoiceNumber: 'INV-2001',
       customerId: customer4.id,
       date: today,
@@ -343,6 +400,7 @@ async function main() {
   await prisma.expense.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       date: new Date(today.getTime() - 5 * 24 * 60 * 60 * 1000),
       categoryId: createdCategories[0].id,
       amount: 156.50,
@@ -357,6 +415,7 @@ async function main() {
   await prisma.expense.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       date: new Date(today.getTime() - 12 * 24 * 60 * 60 * 1000),
       categoryId: createdCategories[1].id,
       amount: 450.00,
@@ -373,6 +432,7 @@ async function main() {
   await prisma.expense.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       date: new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000),
       categoryId: createdCategories[3].id,
       amount: 299.00,
@@ -387,6 +447,7 @@ async function main() {
   await prisma.expense.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       date: new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000),
       categoryId: createdCategories[4].id,
       amount: 850.00,
@@ -401,6 +462,7 @@ async function main() {
   await prisma.expense.create({
     data: {
       userId: user1.id,
+      organizationId: org1.id,
       date: today,
       categoryId: createdCategories[5].id,
       amount: 125.75,
@@ -420,6 +482,7 @@ async function main() {
   await prisma.expense.create({
     data: {
       userId: user2.id,
+      organizationId: org2.id,
       date: new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000),
       categoryId: createdCategories[3].id,
       amount: 99.00,
@@ -454,21 +517,24 @@ async function main() {
   console.log('Created notes from accountant');
 
   console.log('\n=== Seed Summary ===');
-  console.log('Users created:');
+  console.log('Organizations created:');
+  console.log('  - Acme Corporation (slug: acme-corp, plan: PRO)');
+  console.log('  - Tech Consulting Pro (slug: tech-consulting-pro, plan: FREE)');
+  console.log('\nUsers created:');
   console.log('  - Admin: admin@invoiceapp.com (ADMIN)');
   console.log('  - User1: john@business.com (USER) - Acme Corporation');
   console.log('  - User2: sarah@consulting.com (USER) - Tech Consulting Pro');
   console.log('  - Accountant: accountant@cpa.com (ACCOUNTANT)');
   console.log('\nCustomers:');
-  console.log('  - User1 has 3 customers');
-  console.log('  - User2 has 2 customers');
+  console.log('  - User1 has 3 customers (Org: Acme Corporation)');
+  console.log('  - User2 has 2 customers (Org: Tech Consulting Pro)');
   console.log('  - Accountant assigned to 2 of User1\'s customers');
   console.log('\nInvoices:');
-  console.log('  - User1 has 4 invoices');
-  console.log('  - User2 has 1 invoice');
+  console.log('  - User1 has 4 invoices (Org: Acme Corporation)');
+  console.log('  - User2 has 1 invoice (Org: Tech Consulting Pro)');
   console.log('\nExpenses:');
-  console.log('  - User1 has 5 expenses');
-  console.log('  - User2 has 1 expense');
+  console.log('  - User1 has 5 expenses (Org: Acme Corporation)');
+  console.log('  - User2 has 1 expense (Org: Tech Consulting Pro)');
   console.log('\nDatabase seeded successfully!');
 }
 
