@@ -55,6 +55,8 @@ async function main() {
       email: 'admin@invoiceapp.com',
       name: 'Admin User',
       role: 'ADMIN',
+      isActive: true,
+      lastLoginAt: new Date(),
     },
   });
   console.log('Created admin user:', admin.email);
@@ -67,6 +69,8 @@ async function main() {
       name: 'John Business',
       role: 'USER',
       organizationId: org1.id,
+      isActive: true,
+      lastLoginAt: new Date(),
       company: {
         create: {
           name: 'Acme Corporation',
@@ -88,6 +92,8 @@ async function main() {
       name: 'Sarah Consultant',
       role: 'USER',
       organizationId: org2.id,
+      isActive: true,
+      lastLoginAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
       company: {
         create: {
           name: 'Tech Consulting Pro',
@@ -108,6 +114,8 @@ async function main() {
       email: 'accountant@cpa.com',
       name: 'Emma Accountant',
       role: 'ACCOUNTANT',
+      isActive: true,
+      lastLoginAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
     },
   });
   console.log('Created accountant:', accountant.email);
