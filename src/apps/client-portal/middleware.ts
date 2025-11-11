@@ -26,6 +26,8 @@ async function getClerkMiddleware() {
     '/sign-in(.*)',
     '/sign-up(.*)',
     '/api/webhooks/clerk(.*)',
+    '/accept-invitation(.*)',
+    '/api/invitations/accept(.*)',
   ]);
 
   // Return Clerk-protected middleware
