@@ -1,4 +1,4 @@
-import { prisma } from '../src/index';
+import { prisma, generateInvitationToken, generateInvitationExpiry } from '../src/index';
 
 async function main() {
   console.log('Starting seed...');
@@ -516,6 +516,81 @@ async function main() {
 
   console.log('Created notes from accountant');
 
+  // Create sample invitations
+  const invite1 = await prisma.invitation.create({
+    data: {
+      email: 'newuser@example.com',
+      role: 'USER',
+      organizationId: org1.id,
+      invitedBy: admin.id,
+      expiresAt: generateInvitationExpiry(7), // Expires in 7 days
+      status: 'PENDING',
+      token: generateInvitationToken(),
+      customerIds: [],
+    },
+  });
+
+  const invite2 = await prisma.invitation.create({
+    data: {
+      email: 'accountant2@cpa.com',
+      role: 'ACCOUNTANT',
+      organizationId: org1.id,
+      invitedBy: user1.id,
+      expiresAt: generateInvitationExpiry(7),
+      status: 'PENDING',
+      token: generateInvitationToken(),
+      customerIds: [customer2.id, customer3.id], // Pre-assign customers to accountant
+    },
+  });
+
+  const invite3 = await prisma.invitation.create({
+    data: {
+      email: 'manager@business.com',
+      role: 'ADMIN',
+      organizationId: org2.id,
+      invitedBy: user2.id,
+      expiresAt: generateInvitationExpiry(14), // Expires in 14 days
+      status: 'PENDING',
+      token: generateInvitationToken(),
+      customerIds: [],
+    },
+  });
+
+  // Create an accepted invitation (simulating a user who already accepted)
+  const invite4 = await prisma.invitation.create({
+    data: {
+      email: 'accepted@example.com',
+      role: 'USER',
+      organizationId: org1.id,
+      invitedBy: admin.id,
+      expiresAt: generateInvitationExpiry(7),
+      status: 'ACCEPTED',
+      token: generateInvitationToken(),
+      customerIds: [],
+      acceptedAt: new Date(),
+      acceptedBy: 'clerk_accepted_user_id',
+    },
+  });
+
+  // Create an expired invitation
+  const pastDate = new Date();
+  pastDate.setDate(pastDate.getDate() - 2); // Expired 2 days ago
+
+  const invite5 = await prisma.invitation.create({
+    data: {
+      email: 'expired@example.com',
+      role: 'USER',
+      organizationId: org2.id,
+      invitedBy: user2.id,
+      expiresAt: pastDate,
+      status: 'EXPIRED',
+      token: generateInvitationToken(),
+      customerIds: [],
+    },
+  });
+
+  console.log('Created sample invitations');
+
   console.log('\n=== Seed Summary ===');
   console.log('Organizations created:');
   console.log('  - Acme Corporation (slug: acme-corp, plan: PRO)');
@@ -535,6 +610,11 @@ async function main() {
   console.log('\nExpenses:');
   console.log('  - User1 has 5 expenses (Org: Acme Corporation)');
   console.log('  - User2 has 1 expense (Org: Tech Consulting Pro)');
+  console.log('\nInvitations:');
+  console.log('  - 3 PENDING invitations (Org: Acme Corporation & Tech Consulting Pro)');
+  console.log('  - 1 ACCEPTED invitation (Org: Acme Corporation)');
+  console.log('  - 1 EXPIRED invitation (Org: Tech Consulting Pro)');
+  console.log('  - Invitation tokens are cryptographically secure');
   console.log('\nDatabase seeded successfully!');
 }
 

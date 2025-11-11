@@ -10,3 +10,10 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 // Re-export Prisma types for convenience
 export * from '@prisma/client';
+
+// Export utility functions
+export {
+  generateInvitationToken,
+  generateInvitationExpiry,
+  isInvitationExpired,
+} from './utils/token';

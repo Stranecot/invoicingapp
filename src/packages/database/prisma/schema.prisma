@@ -20,6 +20,7 @@ model Organization {
   updatedAt    DateTime              @updatedAt
   customers    Customer[]
   expenses     Expense[]
+  invitations  Invitation[]
   invoices     Invoice[]
   settings     OrganizationSettings?
   users        User[]
@@ -238,6 +239,27 @@ model Note {
   @@index([entityType, entityId])
 }
 
+model Invitation {
+  id             String           @id @default(uuid())
+  email          String
+  role           Role
+  organizationId String
+  invitedBy      String
+  invitedAt      DateTime         @default(now())
+  expiresAt      DateTime
+  status         InvitationStatus @default(PENDING)
+  token          String           @unique
+  customerIds    String[]
+  acceptedAt     DateTime?
+  acceptedBy     String?
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([email, organizationId])
+  @@index([token])
+  @@index([status, expiresAt])
+  @@index([organizationId, status])
+}
+
 enum Role {
   ADMIN
   USER
@@ -261,4 +283,11 @@ enum NoteEntityType {
   INVOICE
   EXPENSE
   CUSTOMER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
 }
