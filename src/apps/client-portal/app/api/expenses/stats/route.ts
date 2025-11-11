@@ -18,6 +18,11 @@ export async function GET() {
       },
     };
 
+    // CRITICAL SECURITY: Add organization filter for all roles
+    if (user.organizationId) {
+      where.organizationId = user.organizationId;
+    }
+
     if (user.role === 'USER') {
       where.userId = user.id;
     } else if (user.role === 'ACCOUNTANT') {
@@ -26,7 +31,7 @@ export async function GET() {
         in: accessibleCustomerIds,
       };
     }
-    // Admin has no additional filter
+    // Admin sees all expenses in their organization
 
     // Total expenses this month
     const monthlyTotal = await prisma.expense.aggregate({
@@ -63,12 +68,18 @@ export async function GET() {
       })
     );
 
+    // Build org-scoped filter for additional queries
+    const orgScopedFilter: any = user.organizationId ? { organizationId: user.organizationId } : {};
+    if (user.role === 'USER') {
+      orgScopedFilter.userId = user.id;
+    } else if (user.role === 'ACCOUNTANT') {
+      orgScopedFilter.customerId = { in: await getAccessibleCustomerIds() };
+    }
+
     // Expenses by status
     const expensesByStatus = await prisma.expense.groupBy({
       by: ['status'],
-      where: user.role === 'USER' ? { userId: user.id } :
-             user.role === 'ACCOUNTANT' ? { customerId: { in: await getAccessibleCustomerIds() } } :
-             {},
+      where: orgScopedFilter,
       _sum: {
         amount: true,
       },
@@ -79,9 +90,7 @@ export async function GET() {
 
     // Recent expenses (last 5)
     const recentExpenses = await prisma.expense.findMany({
-      where: user.role === 'USER' ? { userId: user.id } :
-             user.role === 'ACCOUNTANT' ? { customerId: { in: await getAccessibleCustomerIds() } } :
-             {},
+      where: orgScopedFilter,
       take: 5,
       orderBy: { date: 'desc' },
       include: {
@@ -92,9 +101,7 @@ export async function GET() {
 
     // Total expenses all time
     const totalAllTime = await prisma.expense.aggregate({
-      where: user.role === 'USER' ? { userId: user.id } :
-             user.role === 'ACCOUNTANT' ? { customerId: { in: await getAccessibleCustomerIds() } } :
-             {},
+      where: orgScopedFilter,
       _sum: {
         amount: true,
       },

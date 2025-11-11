@@ -12,13 +12,35 @@
     "start": "turbo run start",
     "lint": "turbo run lint",
     "clean": "turbo run clean",
-    "test": "turbo run test",
-    "test:email": "tsx scripts/test-email-service.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:email": "tsx scripts/test-email-service.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:firefox": "playwright test --project=firefox",
+    "test:e2e:webkit": "playwright test --project=webkit",
+    "test:e2e:mobile": "playwright test --project=mobile-chrome --project=mobile-safari",
+    "test:e2e:admin": "playwright test e2e/admin",
+    "test:e2e:client": "playwright test e2e/client-portal",
+    "test:e2e:security": "playwright test e2e/security",
+    "test:e2e:responsive": "playwright test e2e/responsive",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:codegen": "playwright codegen http://localhost:3001"
   },
   "devDependencies": {
-    "turbo": "^2.3.3",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.0",
+    "@vitest/coverage-v8": "^4.0.8",
+    "@vitest/ui": "^4.0.8",
+    "dotenv": "^16.4.5",
     "tsx": "^4.20.6",
-    "dotenv": "^16.4.5"
+    "turbo": "^2.3.3",
+    "vitest": "^4.0.8"
   },
   "engines": {
     "node": ">=18.0.0"

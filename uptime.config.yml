@@ -1,0 +1,313 @@
+# Uptime Monitoring Configuration
+#
+# Configuration for uptime monitoring and health checks.
+# This can be used with services like UptimeRobot, Pingdom, or custom solutions.
+
+# Monitoring Locations
+locations:
+  - name: "US East"
+    provider: "vercel"
+    region: "us-east-1"
+
+  - name: "US West"
+    provider: "vercel"
+    region: "us-west-2"
+
+  - name: "Europe"
+    provider: "vercel"
+    region: "eu-west-1"
+
+# Monitors
+monitors:
+  # Client Portal
+  - name: "Client Portal - Homepage"
+    url: "https://client.yourcompany.com"
+    type: http
+    method: GET
+    interval: 5m  # Check every 5 minutes
+    timeout: 30s
+    expected_status_code: 200
+    expected_keywords:
+      - "Invoice"
+      - "Dashboard"
+    alert_on_failure: true
+    alert_threshold: 2  # Alert after 2 consecutive failures
+    locations: ["US East", "US West", "Europe"]
+
+  - name: "Client Portal - Health Check"
+    url: "https://client.yourcompany.com/api/health"
+    type: http
+    method: GET
+    interval: 2m
+    timeout: 10s
+    expected_status_code: 200
+    expected_response:
+      status: "ok"
+    alert_on_failure: true
+    alert_threshold: 1
+    locations: ["US East"]
+
+  - name: "Client Portal - Auth"
+    url: "https://client.yourcompany.com/sign-in"
+    type: http
+    method: GET
+    interval: 10m
+    timeout: 30s
+    expected_status_code: 200
+    alert_on_failure: true
+    alert_threshold: 2
+    locations: ["US East"]
+
+  # Admin Dashboard
+  - name: "Admin Dashboard - Homepage"
+    url: "https://admin.yourcompany.com"
+    type: http
+    method: GET
+    interval: 5m
+    timeout: 30s
+    expected_status_code: 200
+    alert_on_failure: true
+    alert_threshold: 2
+    locations: ["US East", "US West"]
+
+  - name: "Admin Dashboard - Health Check"
+    url: "https://admin.yourcompany.com/api/health"
+    type: http
+    method: GET
+    interval: 2m
+    timeout: 10s
+    expected_status_code: 200
+    expected_response:
+      status: "ok"
+    alert_on_failure: true
+    alert_threshold: 1
+    locations: ["US East"]
+
+  # API Endpoints
+  - name: "API - Invoices List"
+    url: "https://admin.yourcompany.com/api/invoices"
+    type: http
+    method: GET
+    interval: 10m
+    timeout: 15s
+    headers:
+      Authorization: "Bearer ${UPTIME_API_TOKEN}"
+    expected_status_code: 200
+    alert_on_failure: true
+    alert_threshold: 3
+    locations: ["US East"]
+
+  - name: "API - Customers List"
+    url: "https://admin.yourcompany.com/api/customers"
+    type: http
+    method: GET
+    interval: 10m
+    timeout: 15s
+    headers:
+      Authorization: "Bearer ${UPTIME_API_TOKEN}"
+    expected_status_code: 200
+    alert_on_failure: true
+    alert_threshold: 3
+    locations: ["US East"]
+
+  # Database Health
+  - name: "Database Connection"
+    url: "https://admin.yourcompany.com/api/health/database"
+    type: http
+    method: GET
+    interval: 5m
+    timeout: 30s
+    expected_status_code: 200
+    expected_response:
+      database: "connected"
+    alert_on_failure: true
+    alert_threshold: 1  # Alert immediately
+    locations: ["US East"]
+
+  # Email Service
+  - name: "Email Service Health"
+    url: "https://admin.yourcompany.com/api/health/email"
+    type: http
+    method: GET
+    interval: 15m
+    timeout: 10s
+    expected_status_code: 200
+    alert_on_failure: true
+    alert_threshold: 2
+    locations: ["US East"]
+
+# SSL Certificate Monitoring
+ssl_monitoring:
+  enabled: true
+  check_interval: 24h  # Check once per day
+  alert_before_expiry: 30d  # Alert 30 days before expiration
+
+  certificates:
+    - domain: "client.yourcompany.com"
+      alert_on_expiry: true
+
+    - domain: "admin.yourcompany.com"
+      alert_on_expiry: true
+
+# DNS Monitoring
+dns_monitoring:
+  enabled: true
+  check_interval: 1h
+
+  records:
+    - domain: "client.yourcompany.com"
+      type: A
+      expected_ip: "76.76.21.21"  # Vercel IP example
+
+    - domain: "admin.yourcompany.com"
+      type: A
+      expected_ip: "76.76.21.21"
+
+# Performance Thresholds
+performance:
+  # Response time thresholds
+  response_time:
+    good: 500ms       # < 500ms is good
+    acceptable: 1s    # 500ms - 1s is acceptable
+    slow: 3s          # 1s - 3s is slow
+    critical: 5s      # > 5s is critical
+
+  # Alert on slow response times
+  alert_on_slow: true
+  alert_threshold: 5  # Alert after 5 consecutive slow responses
+
+# Maintenance Windows
+maintenance_windows:
+  - name: "Weekly Maintenance"
+    schedule:
+      day: "sunday"
+      start: "02:00"
+      end: "04:00"
+      timezone: "America/New_York"
+    pause_monitoring: true
+
+  - name: "Monthly Update"
+    schedule:
+      day_of_month: 1
+      start: "03:00"
+      end: "05:00"
+      timezone: "America/New_York"
+    pause_monitoring: true
+
+# Status Page
+status_page:
+  enabled: true
+  url: "https://status.yourcompany.com"
+
+  # Components to display
+  components:
+    - name: "Client Portal"
+      description: "Customer-facing invoice portal"
+      monitors: ["Client Portal - Homepage", "Client Portal - Health Check"]
+
+    - name: "Admin Dashboard"
+      description: "Administrative dashboard"
+      monitors: ["Admin Dashboard - Homepage", "Admin Dashboard - Health Check"]
+
+    - name: "API"
+      description: "REST API"
+      monitors: ["API - Invoices List", "API - Customers List"]
+
+    - name: "Database"
+      description: "Database service"
+      monitors: ["Database Connection"]
+
+  # Incident management
+  incidents:
+    auto_create: true  # Automatically create incidents on failures
+    auto_update: true  # Update incidents with status changes
+    auto_resolve: true # Resolve incidents when issues are fixed
+
+# Notifications
+notifications:
+  # Alert channels
+  channels:
+    - type: email
+      recipients:
+        - ops@yourcompany.com
+      alert_on:
+        - down
+        - slow
+        - ssl_expiring
+
+    - type: slack
+      webhook_url_env: UPTIME_SLACK_WEBHOOK
+      channel: "#uptime"
+      alert_on:
+        - down
+        - recovered
+        - ssl_expiring
+
+    - type: webhook
+      url: "${UPTIME_WEBHOOK_URL}"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Bearer ${UPTIME_WEBHOOK_TOKEN}"
+      alert_on:
+        - all
+
+# Reporting
+reports:
+  # Daily uptime report
+  daily:
+    enabled: true
+    time: "09:00"
+    timezone: "America/New_York"
+    recipients:
+      - ops@yourcompany.com
+    include:
+      - uptime_percentage
+      - average_response_time
+      - incidents
+
+  # Weekly summary
+  weekly:
+    enabled: true
+    day: "monday"
+    time: "09:00"
+    timezone: "America/New_York"
+    recipients:
+      - team-lead@yourcompany.com
+      - cto@yourcompany.com
+    include:
+      - uptime_percentage
+      - average_response_time
+      - incidents
+      - performance_trends
+      - slowest_endpoints
+
+  # Monthly report
+  monthly:
+    enabled: true
+    day: 1
+    time: "09:00"
+    timezone: "America/New_York"
+    recipients:
+      - cto@yourcompany.com
+    include:
+      - uptime_percentage
+      - sla_compliance
+      - incidents_summary
+      - performance_comparison
+      - recommendations
+
+# SLA Targets
+sla:
+  # Uptime targets
+  uptime_target: 99.9  # 99.9% uptime
+
+  # Response time targets
+  response_time_target: 1000ms  # < 1 second average
+
+  # Calculate SLA compliance
+  compliance_period: monthly
+
+  # Alert if SLA at risk
+  alert_on_risk: true
+  risk_threshold: 99.5  # Alert if uptime falls below 99.5%

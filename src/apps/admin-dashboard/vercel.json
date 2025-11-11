@@ -1,0 +1,55 @@
+{
+  "buildCommand": "cd ../.. && turbo run build --filter=@invoice-app/admin-dashboard",
+  "installCommand": "npm install --legacy-peer-deps",
+  "framework": null,
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "@clerk-publishable-key-admin",
+    "CLERK_SECRET_KEY": "@clerk-secret-key-admin",
+    "CLERK_WEBHOOK_SECRET": "@clerk-webhook-secret-admin",
+    "DATABASE_URL": "@database-url-admin",
+    "RESEND_API_KEY": "@resend-api-key",
+    "FROM_EMAIL": "@from-email",
+    "FROM_NAME": "@from-name-admin",
+    "REPLY_TO_EMAIL": "@reply-to-email-admin",
+    "APP_URL": "@app-url-admin",
+    "NEXT_PUBLIC_APP_URL": "@app-url-admin",
+    "CLIENT_PORTAL_URL": "@client-portal-url"
+  },
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "@clerk-publishable-key-admin",
+      "CLERK_SECRET_KEY": "@clerk-secret-key-admin",
+      "DATABASE_URL": "@database-url-admin"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/webhooks/clerk",
+      "destination": "/api/webhooks/clerk"
+    }
+  ]
+}

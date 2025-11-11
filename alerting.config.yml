@@ -1,0 +1,400 @@
+# Alerting Configuration
+#
+# This file defines alerting rules and notification channels for monitoring.
+# It's used by Sentry, Vercel, and custom monitoring tools.
+
+# Alert Severity Levels
+severity_levels:
+  critical: 1   # Production down, data loss, security breach
+  high: 2       # Major feature broken, significant performance degradation
+  medium: 3     # Minor feature broken, moderate performance issues
+  low: 4        # Minor issues, warnings
+
+# Notification Channels
+notification_channels:
+  # Email notifications
+  email:
+    enabled: true
+    recipients:
+      critical:
+        - ops@yourcompany.com
+        - cto@yourcompany.com
+      high:
+        - dev-team@yourcompany.com
+        - ops@yourcompany.com
+      medium:
+        - dev-team@yourcompany.com
+      low:
+        - dev-team@yourcompany.com
+
+  # Slack notifications
+  slack:
+    enabled: true
+    webhook_url_env: SLACK_WEBHOOK_URL
+    channels:
+      critical: "#incidents"
+      high: "#alerts"
+      medium: "#alerts"
+      low: "#monitoring"
+
+    # Message format
+    format:
+      username: "Monitoring Bot"
+      icon_emoji: ":warning:"
+      mention_on_critical: "@channel"
+      mention_on_high: "@here"
+
+  # PagerDuty (for on-call)
+  pagerduty:
+    enabled: false
+    integration_key_env: PAGERDUTY_INTEGRATION_KEY
+    severity_mapping:
+      critical: "critical"
+      high: "error"
+      medium: "warning"
+      low: "info"
+
+  # Discord
+  discord:
+    enabled: false
+    webhook_url_env: DISCORD_WEBHOOK_URL
+    channel_id: "monitoring"
+
+# Alert Rules
+alert_rules:
+  # Error Rate Alerts
+  error_rate:
+    - name: "High Error Rate"
+      description: "Error rate exceeds threshold"
+      severity: high
+      condition:
+        metric: error_rate
+        operator: ">"
+        threshold: 5  # 5% error rate
+        window: 5m    # Over 5 minute window
+      notification_channels: ["email", "slack"]
+
+    - name: "Critical Error Rate"
+      description: "Error rate critically high"
+      severity: critical
+      condition:
+        metric: error_rate
+        operator: ">"
+        threshold: 10  # 10% error rate
+        window: 1m
+      notification_channels: ["email", "slack", "pagerduty"]
+
+  # Response Time Alerts
+  response_time:
+    - name: "Slow API Response"
+      description: "API response time degraded"
+      severity: medium
+      condition:
+        metric: p95_response_time
+        operator: ">"
+        threshold: 2000  # 2 seconds
+        window: 10m
+      notification_channels: ["slack"]
+
+    - name: "Very Slow API Response"
+      description: "API response time critically slow"
+      severity: high
+      condition:
+        metric: p95_response_time
+        operator: ">"
+        threshold: 5000  # 5 seconds
+        window: 5m
+      notification_channels: ["email", "slack"]
+
+  # Availability Alerts
+  uptime:
+    - name: "Service Down"
+      description: "Service is not responding"
+      severity: critical
+      condition:
+        metric: uptime
+        operator: "<"
+        threshold: 99  # Less than 99% uptime
+        window: 5m
+      notification_channels: ["email", "slack", "pagerduty"]
+
+    - name: "High 5xx Error Rate"
+      description: "High rate of server errors"
+      severity: high
+      condition:
+        metric: http_5xx_rate
+        operator: ">"
+        threshold: 1  # 1% 5xx errors
+        window: 5m
+      notification_channels: ["email", "slack"]
+
+  # Resource Utilization
+  resources:
+    - name: "High Memory Usage"
+      description: "Memory usage exceeds threshold"
+      severity: medium
+      condition:
+        metric: memory_usage
+        operator: ">"
+        threshold: 90  # 90% memory usage
+        window: 10m
+      notification_channels: ["slack"]
+
+    - name: "High CPU Usage"
+      description: "CPU usage exceeds threshold"
+      severity: medium
+      condition:
+        metric: cpu_usage
+        operator: ">"
+        threshold: 85  # 85% CPU usage
+        window: 10m
+      notification_channels: ["slack"]
+
+  # Database Alerts
+  database:
+    - name: "Slow Database Queries"
+      description: "Database queries taking too long"
+      severity: medium
+      condition:
+        metric: db_query_time
+        operator: ">"
+        threshold: 1000  # 1 second
+        window: 10m
+      notification_channels: ["slack"]
+
+    - name: "Database Connection Pool Exhausted"
+      description: "All database connections in use"
+      severity: high
+      condition:
+        metric: db_connections_available
+        operator: "<"
+        threshold: 5  # Less than 5 connections available
+        window: 5m
+      notification_channels: ["email", "slack"]
+
+  # Business Metrics
+  business:
+    - name: "Zero Invoices Created"
+      description: "No invoices created in last hour (possible issue)"
+      severity: medium
+      condition:
+        metric: invoices_created
+        operator: "="
+        threshold: 0
+        window: 1h
+      notification_channels: ["slack"]
+      # Only alert during business hours (9 AM - 6 PM)
+      schedule:
+        days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+        hours: "9-18"
+        timezone: "America/New_York"
+
+  # Security Alerts
+  security:
+    - name: "Multiple Failed Login Attempts"
+      description: "Possible brute force attack"
+      severity: high
+      condition:
+        metric: failed_login_attempts
+        operator: ">"
+        threshold: 10  # 10 failed attempts from same IP
+        window: 5m
+      notification_channels: ["email", "slack"]
+
+    - name: "Unusual API Access Pattern"
+      description: "Abnormal API usage detected"
+      severity: medium
+      condition:
+        metric: api_requests_per_minute
+        operator: ">"
+        threshold: 1000  # 1000 requests/min from single IP
+        window: 1m
+      notification_channels: ["slack"]
+
+# Alert Aggregation
+aggregation:
+  # Prevent alert fatigue by grouping similar alerts
+  enabled: true
+
+  # Group alerts within this time window
+  window: 5m
+
+  # Maximum alerts to send per window
+  max_alerts_per_window: 10
+
+  # Group alerts by these fields
+  group_by: ["severity", "rule_name"]
+
+# Alert Suppression
+suppression:
+  # Maintenance windows (no alerts during these times)
+  maintenance_windows:
+    - name: "Weekly Maintenance"
+      schedule:
+        day: "sunday"
+        time: "02:00-04:00"
+        timezone: "America/New_York"
+      suppress_severity: ["low", "medium"]
+
+  # Suppress duplicate alerts
+  deduplicate:
+    enabled: true
+    window: 1h  # Don't send same alert more than once per hour
+
+# Escalation Policy
+escalation:
+  enabled: true
+
+  # Escalate if not acknowledged within these times
+  escalation_times:
+    critical: 15m   # Escalate critical after 15 minutes
+    high: 1h        # Escalate high after 1 hour
+    medium: 4h      # Escalate medium after 4 hours
+    low: 24h        # Escalate low after 24 hours
+
+  # Escalation chain
+  chain:
+    - level: 1
+      notify: ["dev-team@yourcompany.com"]
+    - level: 2
+      notify: ["team-lead@yourcompany.com"]
+    - level: 3
+      notify: ["cto@yourcompany.com"]
+
+# Metrics to Monitor
+metrics:
+  # Application metrics
+  application:
+    - error_rate
+    - response_time
+    - p50_response_time
+    - p95_response_time
+    - p99_response_time
+    - throughput
+    - uptime
+
+  # Infrastructure metrics
+  infrastructure:
+    - cpu_usage
+    - memory_usage
+    - disk_usage
+    - network_io
+
+  # Database metrics
+  database:
+    - query_time
+    - connection_pool_size
+    - slow_queries
+    - deadlocks
+
+  # Business metrics
+  business:
+    - invoices_created
+    - invoices_sent
+    - payments_received
+    - active_users
+    - api_usage
+
+# Healthcheck Endpoints
+healthchecks:
+  # Endpoints to monitor
+  endpoints:
+    - name: "Client Portal Health"
+      url: "https://client-portal.yourcompany.com/api/health"
+      interval: 5m
+      timeout: 10s
+      expected_status: 200
+      alert_on_failure: true
+      severity: critical
+
+    - name: "Admin Dashboard Health"
+      url: "https://admin.yourcompany.com/api/health"
+      interval: 5m
+      timeout: 10s
+      expected_status: 200
+      alert_on_failure: true
+      severity: critical
+
+    - name: "Database Health"
+      url: "https://admin.yourcompany.com/api/health/database"
+      interval: 10m
+      timeout: 30s
+      expected_status: 200
+      alert_on_failure: true
+      severity: high
+
+# Integration with External Services
+integrations:
+  # Sentry
+  sentry:
+    enabled: true
+    organization: "your-org"
+    projects:
+      - "client-portal"
+      - "admin-dashboard"
+
+    # Alert on Sentry issues
+    alert_on:
+      - new_issue
+      - issue_spike  # Sudden increase in errors
+      - regression   # Previously resolved issue returns
+
+  # Vercel
+  vercel:
+    enabled: true
+    team_id: "your-team-id"
+    projects:
+      - "client-portal"
+      - "admin-dashboard"
+
+    # Alert on deployment issues
+    alert_on:
+      - deployment_failed
+      - build_failed
+      - deployment_slow  # Deployment takes too long
+
+  # Uptime monitoring services
+  uptime_robot:
+    enabled: false
+    api_key_env: UPTIME_ROBOT_API_KEY
+    monitors:
+      - "client-portal"
+      - "admin-dashboard"
+
+# Reporting
+reporting:
+  # Daily summary report
+  daily_summary:
+    enabled: true
+    time: "09:00"
+    timezone: "America/New_York"
+    recipients: ["dev-team@yourcompany.com"]
+    include:
+      - error_summary
+      - performance_metrics
+      - uptime_report
+      - top_errors
+
+  # Weekly report
+  weekly_report:
+    enabled: true
+    day: "monday"
+    time: "09:00"
+    timezone: "America/New_York"
+    recipients: ["team-lead@yourcompany.com", "cto@yourcompany.com"]
+    include:
+      - weekly_summary
+      - trends
+      - incidents
+      - performance_comparison
+
+# Testing
+testing:
+  # Test alert configuration
+  test_alerts:
+    enabled: true
+    # Send test alert on first day of month
+    schedule:
+      day: 1
+      time: "10:00"
+    channels: ["slack"]

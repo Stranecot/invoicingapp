@@ -1,0 +1,390 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+
+env:
+  NODE_VERSION: '20'
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID_ADMIN: ${{ secrets.VERCEL_PROJECT_ID_ADMIN }}
+  VERCEL_PROJECT_ID_CLIENT: ${{ secrets.VERCEL_PROJECT_ID_CLIENT }}
+
+jobs:
+  # Job 1: Pre-deployment checks
+  pre-deploy:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    outputs:
+      should-deploy: ${{ steps.check.outputs.should-deploy }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if CI passed
+        id: check
+        run: |
+          # Wait for CI workflow to complete
+          echo "Checking CI status..."
+          SHOULD_DEPLOY=true
+
+          # Get the latest CI workflow run for this commit
+          CI_STATUS=$(gh run list --workflow=ci.yml --commit=${{ github.sha }} --json conclusion --jq '.[0].conclusion')
+
+          if [ "$CI_STATUS" != "success" ]; then
+            echo "CI workflow has not passed. Deployment will be skipped."
+            SHOULD_DEPLOY=false
+          fi
+
+          echo "should-deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check for deployment files changes
+        id: changes
+        run: |
+          # Check if there are changes that require deployment
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Skip deployment if only docs changed
+          if echo "$CHANGED_FILES" | grep -qvE '(\.md$|^docs/|^\.github/workflows/)'; then
+            echo "deployment-required=true" >> $GITHUB_OUTPUT
+          else
+            echo "deployment-required=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Job 2: Build applications
+  build:
+    name: Build for Production
+    runs-on: ubuntu-latest
+    needs: pre-deploy
+    if: needs.pre-deploy.outputs.should-deploy == 'true'
+    strategy:
+      matrix:
+        app:
+          - name: admin-dashboard
+            port: 3002
+          - name: client-portal
+            port: 3001
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull Vercel Environment Information
+        run: |
+          if [ "${{ matrix.app.name }}" = "admin-dashboard" ]; then
+            PROJECT_ID=${{ secrets.VERCEL_PROJECT_ID_ADMIN }}
+          else
+            PROJECT_ID=${{ secrets.VERCEL_PROJECT_ID_CLIENT }}
+          fi
+
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }} --scope=${{ secrets.VERCEL_ORG_ID }}
+        working-directory: src/apps/${{ matrix.app.name }}
+
+      - name: Generate Prisma Client
+        run: |
+          cd src/packages/database
+          npx prisma generate
+
+      - name: Build Project Artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: src/apps/${{ matrix.app.name }}
+        env:
+          CI: true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-build-${{ matrix.app.name }}
+          path: |
+            src/apps/${{ matrix.app.name }}/.vercel
+          retention-days: 1
+
+  # Job 3: Deploy to Vercel
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        app:
+          - name: admin-dashboard
+            display: Admin Dashboard
+          - name: client-portal
+            display: Client Portal
+      max-parallel: 1 # Deploy one at a time to avoid conflicts
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vercel-build-${{ matrix.app.name }}
+          path: src/apps/${{ matrix.app.name }}/.vercel
+
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          if [ "${{ matrix.app.name }}" = "admin-dashboard" ]; then
+            PROJECT_ID=${{ secrets.VERCEL_PROJECT_ID_ADMIN }}
+          else
+            PROJECT_ID=${{ secrets.VERCEL_PROJECT_ID_CLIENT }}
+          fi
+
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }} --scope=${{ secrets.VERCEL_ORG_ID }})
+          echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $DEPLOYMENT_URL"
+        working-directory: src/apps/${{ matrix.app.name }}
+
+      - name: Save deployment URL
+        run: |
+          echo "${{ matrix.app.name }}=${{ steps.deploy.outputs.url }}" >> $GITHUB_ENV
+          echo "DEPLOYMENT_URL_${{ matrix.app.name }}=${{ steps.deploy.outputs.url }}" >> deployment-urls.txt
+
+      - name: Upload deployment URLs
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-url-${{ matrix.app.name }}
+          path: deployment-urls.txt
+          retention-days: 30
+
+  # Job 4: Post-deployment verification
+  verify:
+    name: Post-Deployment Verification
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download deployment URLs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deployment-url-*
+          merge-multiple: true
+
+      - name: Wait for deployments to be ready
+        run: sleep 30
+
+      - name: Verify Admin Dashboard
+        run: |
+          ADMIN_URL=$(grep "admin-dashboard" deployment-urls.txt | cut -d'=' -f2)
+          echo "Verifying Admin Dashboard at: $ADMIN_URL"
+
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$ADMIN_URL")
+          if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 307 ]; then
+            echo "Health check failed for Admin Dashboard (HTTP $STATUS)"
+            exit 1
+          fi
+
+          echo "Admin Dashboard is up and running!"
+
+      - name: Verify Client Portal
+        run: |
+          CLIENT_URL=$(grep "client-portal" deployment-urls.txt | cut -d'=' -f2)
+          echo "Verifying Client Portal at: $CLIENT_URL"
+
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$CLIENT_URL")
+          if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 307 ]; then
+            echo "Health check failed for Client Portal (HTTP $STATUS)"
+            exit 1
+          fi
+
+          echo "Client Portal is up and running!"
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests..."
+          # Add smoke test commands here
+          # For example: curl specific endpoints to verify they work
+
+          ADMIN_URL=$(grep "admin-dashboard" deployment-urls.txt | cut -d'=' -f2)
+          CLIENT_URL=$(grep "client-portal" deployment-urls.txt | cut -d'=' -f2)
+
+          # Test admin API health
+          curl -f "$ADMIN_URL/api/health" || echo "Admin API health check endpoint not found (this is okay if not implemented)"
+
+          # Test client API health
+          curl -f "$CLIENT_URL/api/health" || echo "Client API health check endpoint not found (this is okay if not implemented)"
+
+          echo "Smoke tests completed!"
+
+  # Job 5: Notification
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [deploy, verify]
+    if: always()
+    steps:
+      - name: Download deployment URLs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deployment-url-*
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Create deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Status: ${{ needs.verify.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f deployment-urls.txt ]; then
+            echo "### Deployment URLs" >> $GITHUB_STEP_SUMMARY
+            ADMIN_URL=$(grep "admin-dashboard" deployment-urls.txt | cut -d'=' -f2 || echo "N/A")
+            CLIENT_URL=$(grep "client-portal" deployment-urls.txt | cut -d'=' -f2 || echo "N/A")
+            echo "- **Admin Dashboard**: $ADMIN_URL" >> $GITHUB_STEP_SUMMARY
+            echo "- **Client Portal**: $CLIENT_URL" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Verification" >> $GITHUB_STEP_SUMMARY
+          echo "- Post-deployment checks: ${{ needs.verify.result == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack notification
+        if: always() && vars.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Deployment to Production",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ needs.verify.result == 'success' && '✅' || '❌' }} Deployment to Production"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ needs.verify.result == 'success' && 'Success' || 'Failed' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n${{ github.ref_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n<https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Author:*\n${{ github.actor }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Send Discord notification
+        if: always() && vars.DISCORD_WEBHOOK_URL != ''
+        run: |
+          STATUS="${{ needs.verify.result == 'success' && '✅ Success' || '❌ Failed' }}"
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" ${{ github.sha }})
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"Deployment to Production $STATUS\",
+                \"description\": \"$COMMIT_MSG\",
+                \"color\": ${{ needs.verify.result == 'success' && '3066993' || '15158332' }},
+                \"fields\": [
+                  {\"name\": \"Branch\", \"value\": \"${{ github.ref_name }}\", \"inline\": true},
+                  {\"name\": \"Commit\", \"value\": \"[${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\", \"inline\": true},
+                  {\"name\": \"Author\", \"value\": \"${{ github.actor }}\", \"inline\": true}
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
+              }]
+            }" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+  # Job 6: Rollback on failure
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy, verify]
+    if: failure()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Rollback deployments
+        run: |
+          echo "Deployment failed. Consider manual rollback if needed."
+          echo "Use: vercel rollback <deployment-url> --token=\$VERCEL_TOKEN"
+          echo "Or visit Vercel dashboard to rollback to previous deployment."
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Deployment Failed - Rollback May Be Required (${context.runId})`,
+              body: `Deployment to production failed.\n\n**Workflow Run**: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n**Commit**: ${context.sha}\n\n**Branch**: ${context.ref}\n\nPlease review the deployment logs and consider rolling back if necessary.`,
+              labels: ['deployment', 'bug', 'urgent']
+            });

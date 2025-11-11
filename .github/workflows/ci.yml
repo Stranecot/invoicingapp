@@ -1,0 +1,465 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Cancel in-progress runs on same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+jobs:
+  # Job 1: Install dependencies and cache
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for better caching
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Cache Next.js builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/apps/admin-dashboard/.next
+            src/apps/client-portal/.next
+          key: nextjs-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-
+
+  # Job 2: Linting
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # Job 3: Type checking
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Run TypeScript type checking
+        run: npx turbo run build --dry=json | jq -r '.tasks[].command' | grep -o 'tsc --noEmit' | head -1 || npx tsc --noEmit --project src/apps/admin-dashboard/tsconfig.json && npx tsc --noEmit --project src/apps/client-portal/tsconfig.json
+
+  # Job 4: Unit tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Setup test database
+        run: |
+          # Create test database
+          echo "DATABASE_URL=file:./test.db" > .env
+          cd src/packages/database
+          npx prisma generate
+          npx prisma migrate deploy
+        env:
+          DATABASE_URL: file:./test.db
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+        env:
+          CI: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          flags: unittests
+          name: unit-test-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
+
+      - name: Check coverage thresholds
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            COVERAGE=$(cat coverage/coverage-summary.json | jq -r '.total.lines.pct')
+            echo "Line coverage: $COVERAGE%"
+            if (( $(echo "$COVERAGE < 75" | bc -l) )); then
+              echo "Coverage is below 75% threshold"
+              exit 1
+            fi
+          fi
+
+  # Job 5: Build applications
+  build:
+    name: Build Apps
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        app: [admin-dashboard, client-portal]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Restore Next.js cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/apps/admin-dashboard/.next
+            src/apps/client-portal/.next
+          key: nextjs-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-
+
+      - name: Setup environment
+        run: |
+          # Create minimal .env for build
+          cat > .env << EOF
+          DATABASE_URL=file:./dev.db
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY=${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+          EOF
+
+      - name: Generate Prisma Client
+        run: |
+          cd src/packages/database
+          npx prisma generate
+
+      - name: Build ${{ matrix.app }}
+        run: |
+          cd src/apps/${{ matrix.app }}
+          npm run build
+        env:
+          CI: true
+          SKIP_ENV_VALIDATION: true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.app }}
+          path: src/apps/${{ matrix.app }}/.next
+          retention-days: 7
+
+  # Job 6: E2E tests
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        browser: [chromium, firefox, webkit]
+        shard: [1, 2]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download build artifacts (admin-dashboard)
+        uses: actions/download-artifact@v4
+        with:
+          name: build-admin-dashboard
+          path: src/apps/admin-dashboard/.next
+
+      - name: Download build artifacts (client-portal)
+        uses: actions/download-artifact@v4
+        with:
+          name: build-client-portal
+          path: src/apps/client-portal/.next
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Setup test database
+        run: |
+          # Setup test database for E2E tests
+          cd src/packages/database
+          echo "DATABASE_URL=file:./e2e-test.db" > .env
+          npx prisma generate
+          npx prisma migrate deploy
+          npx prisma db seed
+        env:
+          DATABASE_URL: file:./e2e-test.db
+
+      - name: Setup test environment
+        run: |
+          cat > .env.test << EOF
+          DATABASE_URL=file:./src/packages/database/e2e-test.db
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY=${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+          BASE_URL=http://localhost:3001
+          CLIENT_PORTAL_URL=http://localhost:3001
+          ADMIN_DASHBOARD_URL=http://localhost:3002
+          EOF
+
+      - name: Run E2E tests
+        run: npx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/2
+        env:
+          CI: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.browser }}-${{ matrix.shard }}
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Upload test traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-${{ matrix.browser }}-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 7
+
+  # Job 7: Test report aggregation
+  test-report:
+    name: Test Report
+    runs-on: ubuntu-latest
+    needs: [unit-tests, e2e-tests]
+    if: always()
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+        continue-on-error: true
+
+      - name: Download E2E reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          merge-multiple: true
+          path: e2e-reports/
+        continue-on-error: true
+
+      - name: Generate test summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Unit test coverage
+          if [ -f coverage/coverage-summary.json ]; then
+            echo "### Unit Test Coverage" >> $GITHUB_STEP_SUMMARY
+            LINES=$(cat coverage/coverage-summary.json | jq -r '.total.lines.pct')
+            BRANCHES=$(cat coverage/coverage-summary.json | jq -r '.total.branches.pct')
+            FUNCTIONS=$(cat coverage/coverage-summary.json | jq -r '.total.functions.pct')
+            STATEMENTS=$(cat coverage/coverage-summary.json | jq -r '.total.statements.pct')
+            echo "- Lines: $LINES%" >> $GITHUB_STEP_SUMMARY
+            echo "- Branches: $BRANCHES%" >> $GITHUB_STEP_SUMMARY
+            echo "- Functions: $FUNCTIONS%" >> $GITHUB_STEP_SUMMARY
+            echo "- Statements: $STATEMENTS%" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # E2E test results
+          if [ -d e2e-reports ]; then
+            echo "### E2E Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "E2E tests completed across multiple browsers and shards." >> $GITHUB_STEP_SUMMARY
+            echo "View detailed reports in the artifacts." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let message = '## CI Pipeline Results\n\n';
+
+            // Add coverage info if available
+            if (fs.existsSync('coverage/coverage-summary.json')) {
+              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+              const lines = coverage.total.lines.pct;
+              const emoji = lines >= 75 ? '✅' : '❌';
+              message += `### Unit Test Coverage ${emoji}\n`;
+              message += `- Lines: ${lines}%\n`;
+              message += `- Branches: ${coverage.total.branches.pct}%\n`;
+              message += `- Functions: ${coverage.total.functions.pct}%\n`;
+              message += `- Statements: ${coverage.total.statements.pct}%\n\n`;
+            }
+
+            message += '### E2E Tests\n';
+            message += 'E2E tests completed. Check the workflow artifacts for detailed reports.\n\n';
+            message += `[View Full CI Run](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+  # Job 8: Quality gate check
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, unit-tests, build, e2e-tests]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          echo "Checking quality gate..."
+          LINT="${{ needs.lint.result }}"
+          TYPECHECK="${{ needs.typecheck.result }}"
+          UNIT_TESTS="${{ needs.unit-tests.result }}"
+          BUILD="${{ needs.build.result }}"
+          E2E_TESTS="${{ needs.e2e-tests.result }}"
+
+          echo "Lint: $LINT"
+          echo "Type Check: $TYPECHECK"
+          echo "Unit Tests: $UNIT_TESTS"
+          echo "Build: $BUILD"
+          echo "E2E Tests: $E2E_TESTS"
+
+          if [ "$LINT" != "success" ] || [ "$TYPECHECK" != "success" ] || [ "$UNIT_TESTS" != "success" ] || [ "$BUILD" != "success" ] || [ "$E2E_TESTS" != "success" ]; then
+            echo "Quality gate failed!"
+            exit 1
+          fi
+
+          echo "Quality gate passed!"
+
+      - name: Update commit status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const state = '${{ needs.lint.result }}' === 'success' &&
+                         '${{ needs.typecheck.result }}' === 'success' &&
+                         '${{ needs.unit-tests.result }}' === 'success' &&
+                         '${{ needs.build.result }}' === 'success' &&
+                         '${{ needs.e2e-tests.result }}' === 'success' ? 'success' : 'failure';
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: state,
+              context: 'CI Pipeline / Quality Gate',
+              description: state === 'success' ? 'All checks passed' : 'Some checks failed',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });

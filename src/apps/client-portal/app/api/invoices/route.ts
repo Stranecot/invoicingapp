@@ -6,11 +6,17 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
 
+    // CRITICAL SECURITY: getUserAccessFilter now includes organization filtering
+    // This ensures multi-tenant isolation at the database query level
+    const filter = await getUserAccessFilter();
+
     let invoices;
 
-    if (user.role === 'ADMIN') {
-      // Admin sees all invoices
+    if (user.role === 'ADMIN' || user.role === 'ACCOUNTANT') {
+      // Admin sees all invoices in their organization
+      // Accountant sees invoices for assigned customers in their organization
       invoices = await prisma.invoice.findMany({
+        where: filter,
         include: {
           customer: true,
           items: true,
@@ -24,29 +30,12 @@ export async function GET() {
         orderBy: { createdAt: 'desc' },
       });
     } else if (user.role === 'USER') {
-      // User sees only their own invoices
-      invoices = await prisma.invoice.findMany({
-        where: { userId: user.id },
-        include: {
-          customer: true,
-          items: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    } else if (user.role === 'ACCOUNTANT') {
-      // Accountant sees invoices for assigned customers only
-      const filter = await getUserAccessFilter();
+      // User sees only their own invoices in their organization
       invoices = await prisma.invoice.findMany({
         where: filter,
         include: {
           customer: true,
           items: true,
-          user: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -81,18 +70,28 @@ export async function POST(request: NextRequest) {
 
     console.log('Creating invoice with data:', { invoiceData, items });
 
-    // Remove userId from data if present (security)
+    // Remove userId and organizationId from data if present (security)
     delete invoiceData.userId;
+    delete invoiceData.organizationId;
 
-    // Verify customer belongs to the user
+    // CRITICAL SECURITY: Verify customer belongs to user's organization
     const customer = await prisma.customer.findUnique({
       where: { id: invoiceData.customerId },
+      select: { id: true, userId: true, organizationId: true },
     });
 
     if (!customer) {
       return NextResponse.json(
         { error: 'Customer not found' },
         { status: 404 }
+      );
+    }
+
+    // CRITICAL SECURITY: Customer must belong to user's organization
+    if (user.organizationId && customer.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: Customer does not belong to your organization' },
+        { status: 403 }
       );
     }
 
@@ -104,10 +103,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // CRITICAL SECURITY: Set organizationId from current user
     const invoice = await prisma.invoice.create({
       data: {
         ...invoiceData,
         userId: user.id,
+        organizationId: user.organizationId,
         items: {
           create: items,
         },

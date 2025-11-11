@@ -58,6 +58,7 @@ model User {
   invitationId          String?                @unique
   isActive              Boolean                @default(true)
   lastLoginAt           DateTime?
+  hasCompletedWelcome   Boolean                @default(false)
   accountantAssignments AccountantAssignment[]
   budgets               Budget[]
   company               Company?

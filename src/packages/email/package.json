@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --noEmit",
-    "test": "tsx scripts/test-email.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:manual": "tsx scripts/test-email.ts"
   },
   "dependencies": {
     "resend": "^4.0.1",

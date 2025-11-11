@@ -7,6 +7,7 @@ export type UserWithRole = {
   email: string;
   name: string | null;
   role: Role;
+  organizationId?: string | null;
 };
 
 /**
@@ -29,6 +30,7 @@ export async function getCurrentUser(): Promise<UserWithRole> {
       email: true,
       name: true,
       role: true,
+      organizationId: true,
     },
   });
 
@@ -72,6 +74,7 @@ export async function getCurrentUser(): Promise<UserWithRole> {
         email: true,
         name: true,
         role: true,
+        organizationId: true,
       },
     });
 
@@ -150,17 +153,13 @@ export async function requireAccountantOrAdmin(): Promise<UserWithRole> {
 
 /**
  * Check if the current user can access a specific customer's data
- * - Admins can access all customers
- * - Users can access their own customers
- * - Accountants can access assigned customers
+ * - Admins can access all customers in their organization
+ * - Users can access their own customers in their organization
+ * - Accountants can access assigned customers in their organization
+ * CRITICAL SECURITY: Now includes organization check for multi-tenant isolation
  */
 export async function canAccessCustomer(customerId: string): Promise<boolean> {
   const user = await getCurrentUser();
-
-  // Admin can access everything
-  if (user.role === 'ADMIN') {
-    return true;
-  }
 
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
@@ -173,6 +172,16 @@ export async function canAccessCustomer(customerId: string): Promise<boolean> {
 
   if (!customer) {
     return false;
+  }
+
+  // CRITICAL: Customer must belong to user's organization
+  if (user.organizationId && customer.organizationId !== user.organizationId) {
+    return false;
+  }
+
+  // Admin can access all customers in their organization
+  if (user.role === 'ADMIN') {
+    return true;
   }
 
   // User can access their own customers
@@ -190,12 +199,17 @@ export async function canAccessCustomer(customerId: string): Promise<boolean> {
 
 /**
  * Get all customer IDs that the current user can access
+ * IMPORTANT: This now includes organization filtering for multi-tenant security
  */
 export async function getAccessibleCustomerIds(): Promise<string[]> {
   const user = await getCurrentUser();
 
+  // All queries must be scoped to user's organization
+  const orgFilter = user.organizationId ? { organizationId: user.organizationId } : {};
+
   if (user.role === 'ADMIN') {
     const customers = await prisma.customer.findMany({
+      where: orgFilter,
       select: { id: true },
     });
     return customers.map((c) => c.id);
@@ -203,7 +217,10 @@ export async function getAccessibleCustomerIds(): Promise<string[]> {
 
   if (user.role === 'USER') {
     const customers = await prisma.customer.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        ...orgFilter,
+      },
       select: { id: true },
     });
     return customers.map((c) => c.id);
@@ -223,16 +240,24 @@ export async function getAccessibleCustomerIds(): Promise<string[]> {
 /**
  * Build a Prisma where clause for filtering data by user access
  * Returns an object that can be spread into a Prisma where clause
+ * CRITICAL SECURITY: Now includes organization filtering for multi-tenant isolation
  */
 export async function getUserAccessFilter() {
   const user = await getCurrentUser();
 
+  // Organization filter is mandatory for all roles
+  const orgFilter = user.organizationId ? { organizationId: user.organizationId } : {};
+
   if (user.role === 'ADMIN') {
-    return {}; // No filter for admin
+    // Admin sees all data within their organization only
+    return orgFilter;
   }
 
   if (user.role === 'USER') {
-    return { userId: user.id };
+    return {
+      userId: user.id,
+      ...orgFilter,
+    };
   }
 
   if (user.role === 'ACCOUNTANT') {
@@ -241,11 +266,101 @@ export async function getUserAccessFilter() {
       customerId: {
         in: customerIds,
       },
+      ...orgFilter,
     };
   }
 
   // Fallback: return impossible condition
   return { id: 'impossible' };
+}
+
+/**
+ * Get the current user's organization
+ */
+export async function getCurrentUserOrg() {
+  const user = await getCurrentUser();
+
+  if (!user.organizationId) {
+    return null;
+  }
+
+  const organization = await prisma.organization.findUnique({
+    where: { id: user.organizationId },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      logo: true,
+      status: true,
+      plan: true,
+    },
+  });
+
+  return organization;
+}
+
+/**
+ * Check if user has specific permission
+ * Uses the permission system defined in permissions.ts
+ */
+export async function checkPermission(permission: string): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const { roleHasPermission } = await import('./permissions');
+    // Type assertion needed because permission is a string
+    return roleHasPermission(user.role, permission as any);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get organization filter for Prisma queries
+ * CRITICAL SECURITY: This ensures all data queries are scoped to user's organization
+ * Returns empty object if user has no organization (for backwards compatibility)
+ */
+export async function getOrgFilter(): Promise<{ organizationId?: string }> {
+  const user = await getCurrentUser();
+  return user.organizationId ? { organizationId: user.organizationId } : {};
+}
+
+/**
+ * Apply organization filter to a where clause
+ * CRITICAL SECURITY: Use this to add organization filtering to any Prisma query
+ * @param where - Existing where clause
+ * @returns Where clause with organization filter applied
+ */
+export async function withOrgFilter<T extends Record<string, any>>(where: T = {} as T): Promise<T & { organizationId?: string }> {
+  const orgFilter = await getOrgFilter();
+  return { ...where, ...orgFilter };
+}
+
+/**
+ * Require user to belong to an organization
+ * Throws error if user doesn't have an organizationId
+ */
+export async function requireOrganization(): Promise<string> {
+  const user = await getCurrentUser();
+  if (!user.organizationId) {
+    throw new Error('User must belong to an organization');
+  }
+  return user.organizationId;
+}
+
+/**
+ * Check if a resource belongs to the current user's organization
+ * CRITICAL SECURITY: Use this to verify organization ownership before operations
+ */
+export async function isInUserOrganization(resourceOrgId: string | null | undefined): Promise<boolean> {
+  const user = await getCurrentUser();
+
+  // If user has no org, they can only access resources with no org (legacy data)
+  if (!user.organizationId) {
+    return !resourceOrgId;
+  }
+
+  // Resource must belong to user's organization
+  return resourceOrgId === user.organizationId;
 }
 
 // Re-export Role type from database package

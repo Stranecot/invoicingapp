@@ -10,7 +10,9 @@
     "./client": "./src/client.ts"
   },
   "scripts": {
-    "build": "echo 'No build needed - TypeScript source exports'"
+    "build": "echo 'No build needed - TypeScript source exports'",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.34.0",

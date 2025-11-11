@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { FileText, DollarSign, Receipt, TrendingDown, Plus } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { prisma } from '@/lib/prisma';
 import { startOfMonth, endOfMonth } from 'date-fns';
 import { formatDate, formatCurrency } from '@/lib/eu-format';
+import { getCurrentUserOrNull } from '@invoice-app/auth/server';
 
 async function getDashboardData() {
   const invoices = await prisma.invoice.findMany({
@@ -124,6 +126,21 @@ async function getDashboardData() {
 }
 
 export default async function Dashboard() {
+  // Check if user needs to complete welcome wizard
+  const user = await getCurrentUserOrNull();
+
+  if (user) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { hasCompletedWelcome: true },
+    });
+
+    // Redirect to welcome page if user hasn't completed it
+    if (dbUser && !dbUser.hasCompletedWelcome) {
+      redirect('/welcome');
+    }
+  }
+
   const { invoices, stats, recentExpenses, expensesByCategory } = await getDashboardData();
 
   const statusColors = {

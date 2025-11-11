@@ -1,5 +1,9 @@
 # Invoice App Monorepo
 
+[![CI Pipeline](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/ci.yml)
+[![Deploy](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/deploy.yml)
+[![Scheduled Maintenance](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/scheduled.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO/actions/workflows/scheduled.yml)
+
 This is a Turborepo-based monorepo for the Invoice App project.
 
 ## Project Structure
@@ -47,6 +51,37 @@ npm run build
 
 # Build a specific app
 npm run build --filter=@invoice-app/client-portal
+```
+
+### Testing
+
+```bash
+# Run unit tests
+npm run test
+
+# Run unit tests with coverage
+npm run test:coverage
+
+# Run unit tests in watch mode
+npm run test:watch
+
+# Run E2E tests
+npm run test:e2e
+
+# Run E2E tests in headed mode (see browser)
+npm run test:e2e:headed
+
+# Run E2E tests in UI mode
+npm run test:e2e:ui
+
+# Run E2E tests for specific browser
+npm run test:e2e:chromium
+npm run test:e2e:firefox
+npm run test:e2e:webkit
+
+# Run E2E tests for specific app
+npm run test:e2e:admin
+npm run test:e2e:client
 ```
 
 ### Other Commands
@@ -97,7 +132,64 @@ For the client portal, copy `.env.example` to `.env` in `src/apps/client-portal/
 3. npm workspaces will automatically discover it
 4. Update `turbo.json` if needed for specific build configurations
 
+## CI/CD Pipeline
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **CI Pipeline**: Runs on every pull request and push to main/develop
+  - Linting with ESLint
+  - Type checking with TypeScript
+  - Unit tests with Vitest (75% coverage required)
+  - E2E tests with Playwright
+  - Build verification
+
+- **Deployment Pipeline**: Automatically deploys to Vercel on push to main
+  - Pre-deployment validation
+  - Production builds
+  - Vercel deployment
+  - Post-deployment verification
+  - Notifications (Slack/Discord)
+
+- **Scheduled Maintenance**: Runs daily/weekly
+  - Security audits (npm audit, Snyk)
+  - Dependency updates
+  - Health checks
+  - Cache cleanup
+
+For detailed CI/CD documentation, see [docs/CI-CD-PIPELINE.md](docs/CI-CD-PIPELINE.md).
+
+### Required GitHub Secrets
+
+To enable CI/CD, configure these secrets in your GitHub repository:
+
+**Required**:
+- `VERCEL_TOKEN` - Vercel deployment token
+- `VERCEL_ORG_ID` - Vercel organization ID
+- `VERCEL_PROJECT_ID_ADMIN` - Admin dashboard project ID
+- `VERCEL_PROJECT_ID_CLIENT` - Client portal project ID
+- `CLERK_SECRET_KEY` - Clerk authentication secret
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - Clerk public key
+
+**Optional**:
+- `CODECOV_TOKEN` - Code coverage reporting
+- `SNYK_TOKEN` - Security scanning
+- `SLACK_WEBHOOK_URL` - Slack notifications
+- `DISCORD_WEBHOOK_URL` - Discord notifications
+- `TURBO_TOKEN` - Turborepo Remote Cache
+- `TURBO_TEAM` - Turborepo team name
+
+## Quality Standards
+
+This project enforces the following quality standards:
+
+- Code coverage must be ≥75% for all metrics (lines, branches, functions, statements)
+- All linting rules must pass (ESLint)
+- TypeScript must compile without errors
+- All tests must pass before merging
+- No critical or high severity security vulnerabilities
+
 ## Learn More
 
 - [Turborepo Documentation](https://turbo.build/repo/docs)
 - [npm Workspaces](https://docs.npmjs.com/cli/v7/using-npm/workspaces)
+- [CI/CD Pipeline Documentation](docs/CI-CD-PIPELINE.md)

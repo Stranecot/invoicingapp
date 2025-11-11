@@ -16,15 +16,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify access to the entity
+    // CRITICAL SECURITY: Verify access to the entity AND organization membership
     if (entityType === 'INVOICE') {
       const invoice = await prisma.invoice.findUnique({
         where: { id: entityId },
-        select: { userId: true, customerId: true },
+        select: { userId: true, customerId: true, organizationId: true },
       });
 
       if (!invoice) {
         return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+      }
+
+      // CRITICAL SECURITY: Invoice must belong to user's organization
+      if (user.organizationId && invoice.organizationId !== user.organizationId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
 
       const hasAccess = user.role === 'ADMIN' ||
@@ -37,17 +42,41 @@ export async function GET(request: NextRequest) {
     } else if (entityType === 'EXPENSE') {
       const expense = await prisma.expense.findUnique({
         where: { id: entityId },
-        select: { userId: true, customerId: true },
+        select: { userId: true, customerId: true, organizationId: true },
       });
 
       if (!expense) {
         return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
       }
 
+      // CRITICAL SECURITY: Expense must belong to user's organization
+      if (user.organizationId && expense.organizationId !== user.organizationId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
       const hasAccess = user.role === 'ADMIN' ||
                         (user.role === 'USER' && expense.userId === user.id) ||
                         (user.role === 'ACCOUNTANT' && expense.customerId && await canAccessCustomer(expense.customerId));
 
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    } else if (entityType === 'CUSTOMER') {
+      const customer = await prisma.customer.findUnique({
+        where: { id: entityId },
+        select: { userId: true, organizationId: true },
+      });
+
+      if (!customer) {
+        return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+      }
+
+      // CRITICAL SECURITY: Customer must belong to user's organization
+      if (user.organizationId && customer.organizationId !== user.organizationId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
+      const hasAccess = await canAccessCustomer(entityId);
       if (!hasAccess) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -93,15 +122,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify access to the entity
+    // CRITICAL SECURITY: Verify access to the entity AND organization membership
     if (entityType === 'INVOICE') {
       const invoice = await prisma.invoice.findUnique({
         where: { id: entityId },
-        select: { userId: true, customerId: true },
+        select: { userId: true, customerId: true, organizationId: true },
       });
 
       if (!invoice) {
         return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+      }
+
+      // CRITICAL SECURITY: Invoice must belong to user's organization
+      if (user.organizationId && invoice.organizationId !== user.organizationId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
 
       const hasAccess = user.role === 'ADMIN' ||
@@ -114,17 +148,41 @@ export async function POST(request: NextRequest) {
     } else if (entityType === 'EXPENSE') {
       const expense = await prisma.expense.findUnique({
         where: { id: entityId },
-        select: { userId: true, customerId: true },
+        select: { userId: true, customerId: true, organizationId: true },
       });
 
       if (!expense) {
         return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
       }
 
+      // CRITICAL SECURITY: Expense must belong to user's organization
+      if (user.organizationId && expense.organizationId !== user.organizationId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
       const hasAccess = user.role === 'ADMIN' ||
                         (user.role === 'USER' && expense.userId === user.id) ||
                         (user.role === 'ACCOUNTANT' && expense.customerId && await canAccessCustomer(expense.customerId));
 
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    } else if (entityType === 'CUSTOMER') {
+      const customer = await prisma.customer.findUnique({
+        where: { id: entityId },
+        select: { userId: true, organizationId: true },
+      });
+
+      if (!customer) {
+        return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+      }
+
+      // CRITICAL SECURITY: Customer must belong to user's organization
+      if (user.organizationId && customer.organizationId !== user.organizationId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
+      const hasAccess = await canAccessCustomer(entityId);
       if (!hasAccess) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }

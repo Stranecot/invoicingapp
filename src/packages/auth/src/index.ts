@@ -13,6 +13,7 @@
 export {
   getCurrentUser,
   getCurrentUserOrNull,
+  getCurrentUserOrg,
   hasRole,
   isAdmin,
   isAccountant,
@@ -22,9 +23,11 @@ export {
   canAccessCustomer,
   getAccessibleCustomerIds,
   getUserAccessFilter,
-  type UserWithRole,
-  Role,
+  checkPermission,
 } from './server';
+
+export type { UserWithRole } from './server';
+export { Role } from './server';
 
 // Client-side exports
 export {
@@ -35,8 +38,89 @@ export {
   useIsUser,
   useCanEdit,
   useCanDelete,
+  useHasPermission,
+  useHasAnyPermission,
+  useCanPerform,
+  useCanView,
+  useCanCreate,
+  useCanUpdate,
+  useCanDeleteResource,
+  useCanManageOrg,
+  useCanManageBilling,
+  useCanExport,
+  useCanManageRoles,
+  useCanInvite,
+  usePermissionScope,
   type UserData,
 } from './client';
 
-// Re-export Role type for convenience
-export type { Role } from '@invoice-app/database';
+// Permission system exports
+export {
+  Permission,
+  ROLE_PERMISSIONS,
+  roleHasPermission,
+  roleHasAnyPermission,
+  roleHasAllPermissions,
+  getRolePermissions,
+  ResourceType,
+  Action,
+  buildPermission,
+  getPermissionScope,
+} from './permissions';
+
+// Resource access exports
+export {
+  verifyOrgMembership,
+  canAccessResource,
+  canPerformAction,
+  getResourceAccessFilter,
+} from './resource-access';
+
+// Middleware exports
+export {
+  requireAuth,
+  requirePermission,
+  requireAnyPermission,
+  requireOrganization,
+  requireResourceAccess,
+  requireAction,
+  withAuth,
+  withPermission,
+  withResourceAccess,
+  withOrganization,
+  getIdFromParams,
+  validateRequestBody,
+  errorResponse,
+  successResponse,
+  type PermissionCheckResult,
+} from './middleware';
+
+// Audit logging exports
+export {
+  AuditEventType,
+  logAuditEvent,
+  logPermissionCheck,
+  logResourceAccess,
+  logAction,
+  logAuthAttempt,
+  logOrgMembershipCheck,
+  getUserAuditLogs,
+  getOrganizationAuditLogs,
+  getResourceAuditLogs,
+  getDeniedAccessLogs,
+  clearAuditLogs,
+  getAuditLogStats,
+  type AuditLogEntry,
+} from './audit-log';
+
+// Type exports
+export type {
+  OrganizationInfo,
+  UserWithOrganization,
+  AuthContext,
+} from './types';
+
+export {
+  UnauthorizedError,
+  ForbiddenError,
+} from './types';

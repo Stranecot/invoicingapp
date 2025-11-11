@@ -14,6 +14,11 @@ export async function GET(request: NextRequest) {
 
     const where: any = {};
 
+    // CRITICAL SECURITY: Add organization filter for all roles
+    if (user.organizationId) {
+      where.organizationId = user.organizationId;
+    }
+
     // Apply user-based filtering
     if (user.role === 'USER') {
       where.userId = user.id;
@@ -24,7 +29,7 @@ export async function GET(request: NextRequest) {
         in: accessibleCustomerIds,
       };
     }
-    // Admin sees all expenses (no filter)
+    // Admin sees all expenses in their organization
 
     if (categoryId) {
       where.categoryId = categoryId;
@@ -100,19 +105,29 @@ export async function POST(request: NextRequest) {
 
     console.log('Creating expense with data:', data);
 
-    // Remove userId from data if present (security)
+    // Remove userId and organizationId from data if present (security)
     delete data.userId;
+    delete data.organizationId;
 
-    // Verify customer belongs to the user (if provided)
+    // CRITICAL SECURITY: Verify customer belongs to user's organization (if provided)
     if (data.customerId) {
       const customer = await prisma.customer.findUnique({
         where: { id: data.customerId },
+        select: { id: true, userId: true, organizationId: true },
       });
 
       if (!customer) {
         return NextResponse.json(
           { error: 'Customer not found' },
           { status: 404 }
+        );
+      }
+
+      // CRITICAL SECURITY: Customer must belong to user's organization
+      if (user.organizationId && customer.organizationId !== user.organizationId) {
+        return NextResponse.json(
+          { error: 'Forbidden: Customer does not belong to your organization' },
+          { status: 403 }
         );
       }
 
@@ -124,9 +139,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // CRITICAL SECURITY: Create expense with organizationId from current user
     const expense = await prisma.expense.create({
       data: {
         userId: user.id,
+        organizationId: user.organizationId,
         date: new Date(data.date),
         categoryId: data.categoryId,
         amount: parseFloat(data.amount),

@@ -6,11 +6,15 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
 
+    // CRITICAL SECURITY: Build organization-scoped filter
+    const orgFilter = user.organizationId ? { organizationId: user.organizationId } : {};
+
     let customers;
 
     if (user.role === 'ADMIN') {
-      // Admin sees all customers
+      // Admin sees all customers in their organization
       customers = await prisma.customer.findMany({
+        where: orgFilter,
         orderBy: { createdAt: 'desc' },
         include: {
           user: {
@@ -22,16 +26,22 @@ export async function GET() {
         },
       });
     } else if (user.role === 'USER') {
-      // User sees only their own customers
+      // User sees only their own customers in their organization
       customers = await prisma.customer.findMany({
-        where: { userId: user.id },
+        where: {
+          userId: user.id,
+          ...orgFilter,
+        },
         orderBy: { createdAt: 'desc' },
       });
     } else if (user.role === 'ACCOUNTANT') {
-      // Accountant sees only assigned customers
+      // Accountant sees only assigned customers in their organization
       const customerIds = await getAccessibleCustomerIds();
       customers = await prisma.customer.findMany({
-        where: { id: { in: customerIds } },
+        where: {
+          id: { in: customerIds },
+          ...orgFilter,
+        },
         orderBy: { createdAt: 'desc' },
         include: {
           user: {
@@ -71,14 +81,16 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json();
 
-    // Remove userId from data if present (security)
+    // Remove userId and organizationId from data if present (security)
     delete data.userId;
+    delete data.organizationId;
 
-    // Create customer for the current user (or specified user if admin)
+    // CRITICAL SECURITY: Create customer with organizationId from current user
     const customer = await prisma.customer.create({
       data: {
         ...data,
         userId: user.id, // Always assign to current user for now
+        organizationId: user.organizationId,
       },
     });
 

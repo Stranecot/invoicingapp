@@ -1,0 +1,348 @@
+name: Scheduled Maintenance
+
+on:
+  schedule:
+    # Run dependency audit daily at 2 AM UTC
+    - cron: '0 2 * * *'
+    # Run dependency updates weekly on Monday at 3 AM UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Maintenance task to run'
+        required: true
+        type: choice
+        options:
+          - security-audit
+          - dependency-update
+          - database-backup
+          - cache-cleanup
+          - all
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # Job 1: Security audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.task == 'security-audit' || github.event.inputs.task == 'all'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        id: npm-audit
+        run: |
+          npm audit --audit-level=moderate --json > audit-results.json || true
+          VULNERABILITIES=$(cat audit-results.json | jq '.metadata.vulnerabilities.total')
+          echo "vulnerabilities=$VULNERABILITIES" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Run Snyk security scan
+        if: vars.SNYK_TOKEN != ''
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium --json-file-output=snyk-results.json
+
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-results
+          path: |
+            audit-results.json
+            snyk-results.json
+          retention-days: 90
+
+      - name: Check for critical vulnerabilities
+        run: |
+          if [ -f audit-results.json ]; then
+            CRITICAL=$(cat audit-results.json | jq '.metadata.vulnerabilities.critical // 0')
+            HIGH=$(cat audit-results.json | jq '.metadata.vulnerabilities.high // 0')
+
+            echo "Critical vulnerabilities: $CRITICAL"
+            echo "High vulnerabilities: $HIGH"
+
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "Found critical or high severity vulnerabilities!"
+              # Don't fail the job, just report
+            fi
+          fi
+
+      - name: Create security issue if vulnerabilities found
+        if: steps.npm-audit.outputs.vulnerabilities > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let vulnerabilities = 0;
+
+            if (fs.existsSync('audit-results.json')) {
+              const audit = JSON.parse(fs.readFileSync('audit-results.json', 'utf8'));
+              vulnerabilities = audit.metadata?.vulnerabilities?.total || 0;
+
+              if (vulnerabilities > 0) {
+                // Check if an open security issue already exists
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'open',
+                  labels: 'security,automated'
+                });
+
+                if (issues.data.length === 0) {
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title: `Security vulnerabilities detected (${vulnerabilities} total)`,
+                    body: `The automated security audit found ${vulnerabilities} vulnerabilities.\n\nPlease review the audit results in the [workflow artifacts](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).\n\nRun \`npm audit fix\` to automatically fix compatible issues.`,
+                    labels: ['security', 'automated', 'dependencies']
+                  });
+                }
+              }
+            }
+
+  # Job 2: Dependency updates
+  dependency-update:
+    name: Dependency Updates
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.task == 'dependency-update' || github.event.inputs.task == 'all'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Check for outdated dependencies
+        id: outdated
+        run: |
+          npm outdated --json > outdated.json || true
+          OUTDATED_COUNT=$(cat outdated.json | jq 'length')
+          echo "count=$OUTDATED_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Upload outdated dependencies report
+        if: steps.outdated.outputs.count > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: outdated-dependencies
+          path: outdated.json
+          retention-days: 30
+
+      - name: Create dependency update PR
+        if: steps.outdated.outputs.count > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            if (fs.existsSync('outdated.json')) {
+              const outdated = JSON.parse(fs.readFileSync('outdated.json', 'utf8'));
+              const count = Object.keys(outdated).length;
+
+              if (count > 0) {
+                // Check if a dependency update PR already exists
+                const prs = await github.rest.pulls.list({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'open',
+                  head: `${context.repo.owner}:dependency-updates`
+                });
+
+                if (prs.data.length === 0) {
+                  // Create an issue instead of a PR (PR creation would require branch creation)
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title: `${count} dependencies have updates available`,
+                    body: `The automated dependency check found ${count} outdated dependencies.\n\nPlease review the [outdated dependencies report](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) and consider updating them.\n\nRun \`npm update\` to update to the latest compatible versions within semver ranges.`,
+                    labels: ['dependencies', 'automated']
+                  });
+                }
+              }
+            }
+
+  # Job 3: Database backup reminder
+  database-backup:
+    name: Database Backup Reminder
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.task == 'database-backup' || github.event.inputs.task == 'all'
+    steps:
+      - name: Check backup status
+        run: |
+          echo "Checking database backup status..."
+          echo "Note: Automated database backups should be configured in your production environment."
+          echo "For Vercel deployments with external databases, ensure backup policies are set."
+
+      - name: Create backup reminder issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date();
+            const dayOfMonth = today.getDate();
+
+            // Create reminder on the 1st of each month
+            if (dayOfMonth === 1) {
+              // Check if reminder issue already exists this month
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'database,backup,reminder',
+                since: new Date(today.getFullYear(), today.getMonth(), 1).toISOString()
+              });
+
+              if (issues.data.length === 0) {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `Monthly Database Backup Verification - ${today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`,
+                  body: `This is a monthly reminder to verify that database backups are working correctly.\n\n## Checklist\n\n- [ ] Verify latest backup exists\n- [ ] Test backup restoration process\n- [ ] Check backup retention policy\n- [ ] Review backup storage usage\n- [ ] Document any issues found\n\n**Important**: Close this issue once verification is complete.`,
+                  labels: ['database', 'backup', 'reminder', 'maintenance']
+                });
+              }
+            }
+
+  # Job 4: Cache cleanup
+  cache-cleanup:
+    name: Cache Cleanup
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.task == 'cache-cleanup' || github.event.inputs.task == 'all'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clean up old caches
+        run: |
+          echo "Cleaning up old GitHub Actions caches..."
+          # GitHub automatically removes caches not accessed in 7 days
+          # This is a placeholder for any custom cache cleanup logic
+
+      - name: Check cache usage
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const caches = await github.rest.actions.getActionsCacheList({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+
+            const totalSize = caches.data.actions_caches.reduce((sum, cache) => sum + cache.size_in_bytes, 0);
+            const totalSizeMB = (totalSize / 1024 / 1024).toFixed(2);
+
+            console.log(`Total cache size: ${totalSizeMB} MB`);
+            console.log(`Number of caches: ${caches.data.total_count}`);
+
+            // GitHub's cache limit is 10GB per repository
+            const limitGB = 10;
+            const usagePercent = ((totalSize / (limitGB * 1024 * 1024 * 1024)) * 100).toFixed(2);
+
+            console.log(`Cache usage: ${usagePercent}% of ${limitGB}GB limit`);
+
+            if (usagePercent > 80) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'GitHub Actions Cache Usage High',
+                body: `Current cache usage is at ${usagePercent}% of the ${limitGB}GB limit.\n\nConsider reviewing and cleaning up old caches to prevent hitting the limit.\n\nTotal cache size: ${totalSizeMB} MB\nNumber of caches: ${caches.data.total_count}`,
+                labels: ['maintenance', 'automated', 'cache']
+              });
+            }
+
+  # Job 5: Health check
+  health-check:
+    name: Production Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.task == 'all'
+    steps:
+      - name: Check Admin Dashboard
+        id: admin-health
+        run: |
+          if [ -n "${{ secrets.PRODUCTION_ADMIN_URL }}" ]; then
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.PRODUCTION_ADMIN_URL }}")
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+            if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 307 ]; then
+              echo "Admin Dashboard health check failed (HTTP $STATUS)"
+              exit 1
+            fi
+          else
+            echo "PRODUCTION_ADMIN_URL not configured"
+          fi
+        continue-on-error: true
+
+      - name: Check Client Portal
+        id: client-health
+        run: |
+          if [ -n "${{ secrets.PRODUCTION_CLIENT_URL }}" ]; then
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.PRODUCTION_CLIENT_URL }}")
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+            if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 307 ]; then
+              echo "Client Portal health check failed (HTTP $STATUS)"
+              exit 1
+            fi
+          else
+            echo "PRODUCTION_CLIENT_URL not configured"
+          fi
+        continue-on-error: true
+
+      - name: Create alert on health check failure
+        if: steps.admin-health.outcome == 'failure' || steps.client-health.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Production Health Check Failed',
+              body: `One or more production applications failed health checks.\n\n**Admin Dashboard**: ${{ steps.admin-health.outcome }}\n**Client Portal**: ${{ steps.client-health.outcome }}\n\n**Time**: ${new Date().toISOString()}\n\nPlease investigate immediately.`,
+              labels: ['production', 'health-check', 'urgent', 'automated']
+            });
+
+  # Job 6: Report
+  report:
+    name: Maintenance Report
+    runs-on: ubuntu-latest
+    needs: [security-audit, dependency-update, cache-cleanup, health-check]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Scheduled Maintenance Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Audit: ${{ needs.security-audit.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Dependency Update: ${{ needs.dependency-update.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Cache Cleanup: ${{ needs.cache-cleanup.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Health Check: ${{ needs.health-check.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Send notification
+        if: always() && (needs.security-audit.result == 'failure' || needs.health-check.result == 'failure')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Notify about critical failures
+            console.log('Critical maintenance tasks failed. Issues have been created.');

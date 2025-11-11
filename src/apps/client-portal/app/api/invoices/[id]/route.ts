@@ -28,6 +28,14 @@ export async function GET(
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
 
+    // CRITICAL SECURITY: Invoice must belong to user's organization
+    if (user.organizationId && invoice.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this invoice' },
+        { status: 403 }
+      );
+    }
+
     // Check access: Admin can see all, User can see their own, Accountant can see assigned customers
     const hasAccess = user.role === 'ADMIN' ||
                       (user.role === 'USER' && invoice.userId === user.id) ||
@@ -62,11 +70,19 @@ export async function PUT(
     // Check current invoice
     const currentInvoice = await prisma.invoice.findUnique({
       where: { id },
-      select: { status: true, userId: true, customerId: true },
+      select: { status: true, userId: true, customerId: true, organizationId: true },
     });
 
     if (!currentInvoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    // CRITICAL SECURITY: Invoice must belong to user's organization
+    if (user.organizationId && currentInvoice.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this invoice' },
+        { status: 403 }
+      );
     }
 
     // Permission checks based on role
@@ -117,8 +133,9 @@ export async function PUT(
       );
     }
 
-    // Remove userId from data if present (security)
+    // Remove userId and organizationId from data if present (security)
     delete invoiceData.userId;
+    delete invoiceData.organizationId;
 
     // Delete existing items and create new ones if items are provided
     if (items) {
@@ -171,11 +188,19 @@ export async function DELETE(
 
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      select: { userId: true },
+      select: { userId: true, organizationId: true },
     });
 
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    // CRITICAL SECURITY: Invoice must belong to user's organization
+    if (user.organizationId && invoice.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this invoice' },
+        { status: 403 }
+      );
     }
 
     // Users can only delete their own invoices

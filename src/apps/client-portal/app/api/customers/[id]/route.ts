@@ -36,6 +36,15 @@ export async function GET(
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
+    // CRITICAL SECURITY: Customer must belong to user's organization
+    // This check is redundant with canAccessCustomer but adds defense in depth
+    if (user.organizationId && customer.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this customer' },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json(customer);
   } catch (error) {
     console.error('Error fetching customer:', error);
@@ -73,8 +82,9 @@ export async function PUT(
 
     const data = await request.json();
 
-    // Remove userId from data if present (security)
+    // Remove userId and organizationId from data if present (security)
     delete data.userId;
+    delete data.organizationId;
 
     const customer = await prisma.customer.update({
       where: { id },

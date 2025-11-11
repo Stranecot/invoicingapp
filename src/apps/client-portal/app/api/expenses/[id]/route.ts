@@ -29,6 +29,14 @@ export async function GET(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
+    // CRITICAL SECURITY: Expense must belong to user's organization
+    if (user.organizationId && expense.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this expense' },
+        { status: 403 }
+      );
+    }
+
     // Check access
     const hasAccess = user.role === 'ADMIN' ||
                       (user.role === 'USER' && expense.userId === user.id) ||
@@ -74,11 +82,19 @@ export async function PUT(
     // Get current expense
     const currentExpense = await prisma.expense.findUnique({
       where: { id },
-      select: { userId: true },
+      select: { userId: true, organizationId: true },
     });
 
     if (!currentExpense) {
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
+    }
+
+    // CRITICAL SECURITY: Expense must belong to user's organization
+    if (user.organizationId && currentExpense.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this expense' },
+        { status: 403 }
+      );
     }
 
     // Users can only edit their own expenses
@@ -89,8 +105,9 @@ export async function PUT(
       );
     }
 
-    // Remove userId from data if present (security)
+    // Remove userId and organizationId from data if present (security)
     delete data.userId;
+    delete data.organizationId;
 
     const expense = await prisma.expense.update({
       where: { id },
@@ -145,11 +162,19 @@ export async function DELETE(
 
     const expense = await prisma.expense.findUnique({
       where: { id },
-      select: { userId: true },
+      select: { userId: true, organizationId: true },
     });
 
     if (!expense) {
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
+    }
+
+    // CRITICAL SECURITY: Expense must belong to user's organization
+    if (user.organizationId && expense.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this expense' },
+        { status: 403 }
+      );
     }
 
     // Users can only delete their own expenses
