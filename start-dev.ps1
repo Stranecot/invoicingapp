@@ -1,12 +1,12 @@
 # Start Both Apps - Development Mode
 # This script starts both the client portal and admin dashboard in parallel
 
-Write-Host "🚀 Starting Invoice App Development Servers..." -ForegroundColor Green
+Write-Host "Starting Invoice App Development Servers..." -ForegroundColor Green
 Write-Host ""
 
 # Check if node_modules exists
 if (-not (Test-Path "node_modules")) {
-    Write-Host "📦 Installing dependencies..." -ForegroundColor Yellow
+    Write-Host "Installing dependencies..." -ForegroundColor Yellow
     npm install
 }
 
