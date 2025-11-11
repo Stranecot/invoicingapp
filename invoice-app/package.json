@@ -8,7 +8,8 @@
     "start": "next start -p 3001",
     "lint": "eslint",
     "seed": "tsx prisma/seed-production.ts",
-    "seed:dev": "tsx prisma/seed.ts"
+    "seed:dev": "tsx prisma/seed.ts",
+    "seed:demo": "tsx prisma/seed-demo-data.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed-production.ts"
