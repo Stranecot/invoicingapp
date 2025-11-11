@@ -11,6 +11,7 @@
   "dependencies": {
     "@clerk/nextjs": "^6.34.0",
     "@hookform/resolvers": "^5.2.2",
+    "@invoice-app/auth": "*",
     "@invoice-app/database": "*",
     "date-fns": "^4.1.0",
     "jspdf": "^3.0.3",

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, FileText, Users, Settings, Receipt, UserCog } from 'lucide-react';
 import { UserButton } from '@clerk/nextjs';
-import { useAuth, useIsAdmin } from '@/lib/hooks/useAuth';
+import { useAuth, useIsAdmin } from '@invoice-app/auth/client';
 
 const baseNavItems = [
   { href: '/', icon: Home, label: 'Dashboard', roles: ['ADMIN', 'USER', 'ACCOUNTANT'] },

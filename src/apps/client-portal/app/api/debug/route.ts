@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { currentUser } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUser, getCurrentUserOrNull } from '@/lib/auth';
+import { getCurrentUser, getCurrentUserOrNull } from '@invoice-app/auth/server';
 
 export async function GET() {
   try {

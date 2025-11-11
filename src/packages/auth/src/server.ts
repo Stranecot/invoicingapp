@@ -247,3 +247,6 @@ export async function getUserAccessFilter() {
   // Fallback: return impossible condition
   return { id: 'impossible' };
 }
+
+// Re-export Role type from database package
+export { Role } from '@invoice-app/database';

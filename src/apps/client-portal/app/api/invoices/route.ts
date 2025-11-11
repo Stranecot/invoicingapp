@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUser, getUserAccessFilter } from '@/lib/auth';
+import { getCurrentUser, getUserAccessFilter } from '@invoice-app/auth/server';
 
 export async function GET() {
   try {

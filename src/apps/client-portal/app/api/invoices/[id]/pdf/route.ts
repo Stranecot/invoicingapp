@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateInvoicePDF } from '@/lib/generate-pdf';
-import { getCurrentUser, canAccessCustomer } from '@/lib/auth';
+import { getCurrentUser, canAccessCustomer } from '@invoice-app/auth/server';
 
 export async function GET(
   request: NextRequest,

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Users, Settings, X, UserCog } from 'lucide-react';
-import { useAuth, useIsAdmin } from '@/lib/hooks/useAuth';
+import { useAuth, useIsAdmin } from '@invoice-app/auth/client';
 
 const baseDrawerItems = [
   { href: '/customers', icon: Users, label: 'Customers', roles: ['ADMIN', 'USER', 'ACCOUNTANT'] },

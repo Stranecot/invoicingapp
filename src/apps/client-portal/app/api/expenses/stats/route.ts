@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUser, getAccessibleCustomerIds } from '@/lib/auth';
+import { getCurrentUser, getAccessibleCustomerIds } from '@invoice-app/auth/server';
 import { startOfMonth, endOfMonth } from 'date-fns';
 
 export async function GET() {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAuth, useIsAdmin } from '@/lib/hooks/useAuth';
+import { useAuth, useIsAdmin } from '@invoice-app/auth/client';
 import { useRouter } from 'next/navigation';
 import { Users, UserCog, Link as LinkIcon } from 'lucide-react';
 
