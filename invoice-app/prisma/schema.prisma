@@ -1,0 +1,204 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+  ACCOUNTANT
+}
+
+model User {
+  id                    String                 @id @default(uuid())
+  clerkId               String                 @unique
+  email                 String                 @unique
+  name                  String?
+  role                  Role                   @default(USER)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  company               Company?
+  customers             Customer[]
+  invoices              Invoice[]
+  expenses              Expense[]
+  expenseCategories     ExpenseCategory[]
+  budgets               Budget[]
+  notes                 Note[]
+  accountantAssignments AccountantAssignment[]
+
+  @@index([clerkId])
+  @@index([email])
+  @@index([role])
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  email     String
+  phone     String?
+  address   String?
+  logo      String?
+  taxRate   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Customer {
+  id                    String                 @id @default(uuid())
+  userId                String
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  email                 String
+  phone                 String?
+  address               String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  invoices              Invoice[]
+  expenses              Expense[]
+  accountantAssignments AccountantAssignment[]
+
+  @@index([userId])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoiceNumber String        @unique
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  date          DateTime      @default(now())
+  dueDate       DateTime
+  status        String        @default("draft") // draft, sent, paid, overdue
+  subtotal      Float         @default(0)
+  tax           Float         @default(0)
+  total         Float         @default(0)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  items         InvoiceItem[]
+  expenses      Expense[]
+
+  @@index([userId])
+  @@index([customerId])
+  @@index([status])
+  @@index([date])
+  @@index([createdAt])
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  unitPrice   Float
+  total       Float
+
+  @@index([invoiceId])
+}
+
+model ExpenseCategory {
+  id        String    @id @default(uuid())
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  isCustom  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  expenses  Expense[]
+  budgets   Budget[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Expense {
+  id               String           @id @default(uuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date             DateTime         @default(now())
+  categoryId       String
+  category         ExpenseCategory  @relation(fields: [categoryId], references: [id])
+  amount           Float
+  description      String
+  notes            String?
+  paymentMethod    String?          // cash, credit_card, debit_card, bank_transfer, check, other
+  receiptReference String?
+  vendorName       String?
+  status           String           @default("pending") // pending, paid, reimbursed
+  customerId       String?
+  customer         Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  invoiceId        String?
+  invoice          Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([customerId])
+  @@index([date])
+  @@index([status])
+}
+
+model Budget {
+  id         String          @id @default(uuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  limit      Float
+  period     String          @default("monthly") // monthly, quarterly, yearly
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([userId, categoryId])
+  @@index([userId])
+  @@index([categoryId])
+}
+
+model AccountantAssignment {
+  id           String   @id @default(uuid())
+  accountantId String
+  accountant   User     @relation(fields: [accountantId], references: [id], onDelete: Cascade)
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([accountantId, customerId])
+  @@index([accountantId])
+  @@index([customerId])
+}
+
+enum NoteEntityType {
+  INVOICE
+  EXPENSE
+  CUSTOMER
+}
+
+model Note {
+  id         String         @id @default(uuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entityType NoteEntityType
+  entityId   String
+  content    String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([entityType, entityId])
+}
