@@ -1,10 +1,23 @@
-import { SignOutButton } from '@clerk/nextjs';
+'use client';
+
+import { useRouter } from 'next/navigation';
 import { ShieldAlert, Home, LogOut } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
 export default function UnauthorizedPage() {
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.push('/sign-in');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
       <Card className="max-w-md w-full p-8 text-center">
@@ -38,12 +51,10 @@ export default function UnauthorizedPage() {
             </Button>
           </Link>
 
-          <SignOutButton>
-            <Button className="w-full" variant="outline">
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
-          </SignOutButton>
+          <Button onClick={handleSignOut} className="w-full" variant="outline">
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </Button>
         </div>
 
         <div className="mt-6 pt-6 border-t border-gray-200">

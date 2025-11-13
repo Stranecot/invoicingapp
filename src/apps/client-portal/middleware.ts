@@ -1,56 +1,79 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
-// Check if Clerk is configured
-const isClerkConfigured =
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY !== 'your_clerk_publishable_key_here' &&
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith('pk_');
+// Public routes that don't require authentication
+const publicRoutes = [
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/accept-invitation',
+  '/api/auth/login',
+  '/api/auth/signup',
+  '/api/auth/logout',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/invitations/accept',
+];
 
-// Simple passthrough middleware for when Clerk is not configured
-async function passthroughMiddleware(request: NextRequest) {
-  // Development mode - no authentication
-  return NextResponse.next();
+// Check if a path is public
+function isPublicRoute(pathname: string): boolean {
+  return publicRoutes.some(route => pathname.startsWith(route));
 }
 
-// Lazy-load Clerk middleware only when configured
-async function getClerkMiddleware() {
-  if (!isClerkConfigured) {
-    return passthroughMiddleware;
+// Verify JWT token
+async function verifyToken(token: string): Promise<boolean> {
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+
+    if (!secret || !process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not configured');
+      return false;
+    }
+
+    await jwtVerify(token, secret);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+export default async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Allow public routes
+  if (isPublicRoute(pathname)) {
+    return NextResponse.next();
   }
 
-  const { clerkMiddleware, createRouteMatcher } = await import('@clerk/nextjs/server');
+  // Get auth token from cookies
+  const token = request.cookies.get('auth_token')?.value;
 
-  // Define public routes that don't require authentication
-  const isPublicRoute = createRouteMatcher([
-    '/sign-in(.*)',
-    '/sign-up(.*)',
-    '/api/webhooks/clerk(.*)',
-    '/accept-invitation(.*)',
-    '/api/invitations/accept(.*)',
-  ]);
+  // If no token, redirect to login
+  if (!token) {
+    const url = new URL('/login', request.url);
+    url.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(url);
+  }
 
-  // Return Clerk-protected middleware
-  return clerkMiddleware(async (auth, request) => {
-    // Protect all routes except public ones
-    if (!isPublicRoute(request)) {
-      await auth.protect();
-    }
-  });
-}
+  // Verify token
+  const isValid = await verifyToken(token);
 
-// Initialize middleware
-const middlewarePromise = getClerkMiddleware();
+  if (!isValid) {
+    // Clear invalid token
+    const response = NextResponse.redirect(new URL('/login', request.url));
+    response.cookies.delete('auth_token');
+    return response;
+  }
 
-// Export middleware function that uses the initialized middleware
-export default async function middleware(request: NextRequest) {
-  const middlewareFn = await middlewarePromise;
-  return middlewareFn(request);
+  // Token is valid, allow request
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
+    // Skip Next.js internals and all static files
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',

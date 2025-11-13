@@ -11,8 +11,8 @@ export async function GET() {
 
     let customers;
 
-    if (user.role === 'ADMIN') {
-      // Admin sees all customers in their organization
+    if (user.role === 'ADMIN' || user.role === 'OWNER') {
+      // Admin and Owner see all customers in their organization
       customers = await prisma.customer.findMany({
         where: orgFilter,
         orderBy: { createdAt: 'desc' },
@@ -25,8 +25,8 @@ export async function GET() {
           },
         },
       });
-    } else if (user.role === 'USER') {
-      // User sees only their own customers in their organization
+    } else if (user.role === 'USER' || user.role === 'EMPLOYEE') {
+      // User and Employee see only their own customers in their organization
       customers = await prisma.customer.findMany({
         where: {
           userId: user.id,
@@ -84,6 +84,11 @@ export async function POST(request: NextRequest) {
     // Remove userId and organizationId from data if present (security)
     delete data.userId;
     delete data.organizationId;
+
+    // CRITICAL SECURITY: Auto-fill registrationNumber for PERSON type
+    if (data.type === 'PERSON') {
+      data.registrationNumber = '9999999999';
+    }
 
     // CRITICAL SECURITY: Create customer with organizationId from current user
     const customer = await prisma.customer.create({

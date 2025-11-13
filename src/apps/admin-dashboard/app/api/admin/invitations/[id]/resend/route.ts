@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, generateInvitationToken, generateInvitationExpiry } from '@invoice-app/database';
 import { getAdminUser } from '@/lib/auth';
+import { sendInvitationEmail } from '@invoice-app/email';
+import { ensureEmailClientInitialized, getAppUrl, getRecipientEmail } from '@/lib/email';
 
 /**
  * POST /api/admin/invitations/[id]/resend
@@ -14,7 +16,7 @@ export async function POST(
 ) {
   try {
     // Verify admin access
-    await getAdminUser();
+    const adminUser = await getAdminUser();
 
     const { id } = await params;
 
@@ -74,8 +76,39 @@ export async function POST(
 
     console.log('[Admin] Invitation resent successfully:', updatedInvitation.id);
 
-    // TODO: Send invitation email
-    // This will need the email service configured
+    // Send invitation email (don't fail if email fails)
+    if (ensureEmailClientInitialized()) {
+      try {
+        const clientPortalUrl = process.env.CLIENT_PORTAL_URL || 'http://localhost:3000';
+        const acceptUrl = `${clientPortalUrl}/accept-invitation?token=${newToken}`;
+        const recipientEmail = getRecipientEmail(updatedInvitation.email);
+
+        console.log('[Email] Attempting to send invitation email to:', recipientEmail);
+        console.log('[Email] Accept URL:', acceptUrl);
+
+        const emailResult = await sendInvitationEmail({
+          to: recipientEmail,
+          organizationName: updatedInvitation.organization.name,
+          inviterName: adminUser.name || adminUser.email,
+          role: updatedInvitation.role,
+          token: newToken,
+          expiresAt: newExpiresAt,
+          acceptUrl,
+        });
+
+        if (emailResult.success) {
+          console.log('[Email] Invitation email sent successfully:', emailResult.messageId);
+        } else {
+          console.error('[Email] Failed to send invitation email:', emailResult.error);
+          // Don't fail the request - invitation was updated successfully
+        }
+      } catch (emailError) {
+        console.error('[Email] Error sending invitation email:', emailError);
+        // Don't fail the request - invitation was updated successfully
+      }
+    } else {
+      console.warn('[Email] Email service not configured - invitation updated but email not sent');
+    }
 
     // Remove sensitive token from response
     const { token, ...sanitizedInvitation } = updatedInvitation;

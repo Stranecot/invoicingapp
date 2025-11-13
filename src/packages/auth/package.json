@@ -7,7 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./server": "./src/server.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client-only.ts"
   },
   "scripts": {
     "build": "echo 'No build needed - TypeScript source exports'",
@@ -15,10 +15,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.34.0",
-    "@invoice-app/database": "*"
+    "@invoice-app/database": "*",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.1.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "typescript": "^5"

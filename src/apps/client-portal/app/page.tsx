@@ -9,24 +9,33 @@ import { startOfMonth, endOfMonth } from 'date-fns';
 import { formatDate, formatCurrency } from '@/lib/eu-format';
 import { getCurrentUserOrNull } from '@invoice-app/auth/server';
 
-async function getDashboardData() {
+async function getDashboardData(organizationId: string) {
   const invoices = await prisma.invoice.findMany({
+    where: { organizationId },
     include: { customer: true },
     orderBy: { createdAt: 'desc' },
     take: 5,
   });
 
-  const totalInvoices = await prisma.invoice.count();
+  const totalInvoices = await prisma.invoice.count({
+    where: { organizationId },
+  });
 
   // Optimized: Use aggregates instead of fetching all records
   const paidInvoicesAggregate = await prisma.invoice.aggregate({
-    where: { status: 'paid' },
+    where: {
+      organizationId,
+      status: 'paid'
+    },
     _sum: { total: true },
     _count: true,
   });
 
   const pendingInvoicesAggregate = await prisma.invoice.aggregate({
-    where: { status: { in: ['sent', 'draft'] } },
+    where: {
+      organizationId,
+      status: { in: ['sent', 'draft'] }
+    },
     _sum: { total: true },
   });
 
@@ -41,6 +50,7 @@ async function getDashboardData() {
 
   const monthlyExpenses = await prisma.expense.aggregate({
     where: {
+      organizationId,
       date: {
         gte: startDate,
         lte: endDate,
@@ -52,12 +62,14 @@ async function getDashboardData() {
   });
 
   const totalExpenses = await prisma.expense.aggregate({
+    where: { organizationId },
     _sum: {
       amount: true,
     },
   });
 
   const recentExpenses = await prisma.expense.findMany({
+    where: { organizationId },
     take: 5,
     orderBy: { date: 'desc' },
     include: {
@@ -70,6 +82,7 @@ async function getDashboardData() {
   const expensesByCategory = await prisma.expense.groupBy({
     by: ['categoryId'],
     where: {
+      organizationId,
       date: {
         gte: startDate,
         lte: endDate,
@@ -97,6 +110,7 @@ async function getDashboardData() {
   // Net income (revenue - expenses) for the month
   const monthlyRevenueAggregate = await prisma.invoice.aggregate({
     where: {
+      organizationId,
       status: 'paid',
       date: {
         gte: startDate,
@@ -129,19 +143,36 @@ export default async function Dashboard() {
   // Check if user needs to complete welcome wizard
   const user = await getCurrentUserOrNull();
 
-  if (user) {
-    const dbUser = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: { hasCompletedWelcome: true },
-    });
-
-    // Redirect to welcome page if user hasn't completed it
-    if (dbUser && !dbUser.hasCompletedWelcome) {
-      redirect('/welcome');
-    }
+  if (!user) {
+    redirect('/login');
   }
 
-  const { invoices, stats, recentExpenses, expensesByCategory } = await getDashboardData();
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: {
+      hasCompletedWelcome: true,
+      organizationId: true,
+    },
+  });
+
+  // Redirect to welcome page if user hasn't completed it
+  if (dbUser && !dbUser.hasCompletedWelcome) {
+    redirect('/welcome');
+  }
+
+  // Require organization membership
+  if (!dbUser?.organizationId) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Organization</h1>
+          <p className="text-gray-600">You must belong to an organization to access the dashboard.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { invoices, stats, recentExpenses, expensesByCategory } = await getDashboardData(dbUser.organizationId);
 
   const statusColors = {
     draft: 'bg-gray-200 text-gray-900',

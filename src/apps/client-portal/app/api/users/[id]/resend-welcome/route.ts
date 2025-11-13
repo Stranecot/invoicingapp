@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@invoice-app/database';
-import { requireAdmin } from '@invoice-app/auth';
+import { requireAdmin } from '@invoice-app/auth/server';
 import { sendWelcomeEmail } from '@invoice-app/email';
 
 /**

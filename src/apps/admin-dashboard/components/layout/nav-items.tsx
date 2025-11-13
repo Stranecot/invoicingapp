@@ -1,30 +1,35 @@
 'use client';
 
-import { Home, Building2, Users, Mail, Settings } from 'lucide-react';
+import { Home, Building2, Users, Mail, Settings, CreditCard } from 'lucide-react';
 
 export const navItems = [
   {
-    href: '/dashboard',
+    href: '/',
     icon: Home,
     label: 'Dashboard',
   },
   {
-    href: '/dashboard/organizations',
+    href: '/organizations',
     icon: Building2,
     label: 'Organizations',
   },
   {
-    href: '/dashboard/users',
+    href: '/users',
     icon: Users,
     label: 'Users',
   },
   {
-    href: '/dashboard/invitations',
+    href: '/invitations',
     icon: Mail,
     label: 'Invitations',
   },
   {
-    href: '/dashboard/settings',
+    href: '/plans',
+    icon: CreditCard,
+    label: 'Subscription Plans',
+  },
+  {
+    href: '/settings',
     icon: Settings,
     label: 'Settings',
   },

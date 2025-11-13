@@ -2,16 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, FileText, Users, Settings, Receipt, UserCog } from 'lucide-react';
-import { UserButton } from '@clerk/nextjs';
-import { useAuth, useIsAdmin } from '@invoice-app/auth/client';
+import { Home, FileText, Users, Settings, Receipt, UserCog, LogOut, UsersRound } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 
 const baseNavItems = [
-  { href: '/', icon: Home, label: 'Dashboard', roles: ['ADMIN', 'USER', 'ACCOUNTANT'] },
-  { href: '/invoices', icon: FileText, label: 'Invoices', roles: ['ADMIN', 'USER', 'ACCOUNTANT'] },
-  { href: '/expenses', icon: Receipt, label: 'Expenses', roles: ['ADMIN', 'USER', 'ACCOUNTANT'] },
-  { href: '/customers', icon: Users, label: 'Customers', roles: ['ADMIN', 'USER', 'ACCOUNTANT'] },
-  { href: '/settings', icon: Settings, label: 'Settings', roles: ['ADMIN', 'USER'] },
+  { href: '/', icon: Home, label: 'Dashboard', roles: ['ADMIN', 'USER', 'ACCOUNTANT', 'OWNER', 'EMPLOYEE'] },
+  { href: '/invoices', icon: FileText, label: 'Invoices', roles: ['ADMIN', 'USER', 'ACCOUNTANT', 'OWNER', 'EMPLOYEE'] },
+  { href: '/expenses', icon: Receipt, label: 'Expenses', roles: ['ADMIN', 'USER', 'ACCOUNTANT', 'OWNER', 'EMPLOYEE'] },
+  { href: '/customers', icon: Users, label: 'Customers', roles: ['ADMIN', 'USER', 'ACCOUNTANT', 'OWNER', 'EMPLOYEE'] },
+  { href: '/team', icon: UsersRound, label: 'Team', roles: ['OWNER'] },
+  { href: '/settings', icon: Settings, label: 'Settings', roles: ['ADMIN', 'USER', 'OWNER'] },
 ];
 
 const adminNavItems = [
@@ -20,14 +20,22 @@ const adminNavItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, loading } = useAuth();
-  const isAdmin = useIsAdmin();
+  const { user, loading, logout } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
 
   // Combine nav items based on role
   const navItems = [
     ...baseNavItems.filter(item => user?.role && item.roles.includes(user.role)),
     ...(isAdmin ? adminNavItems : []),
   ];
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
 
   if (loading) {
     return (
@@ -105,26 +113,29 @@ export function Sidebar() {
 
           <div className="p-6 border-t border-gray-800">
             {user ? (
-              <div className="flex items-center gap-3 mb-4">
-                <UserButton
-                  afterSignOutUrl="/sign-in"
-                  appearance={{
-                    elements: {
-                      avatarBox: "w-10 h-10"
-                    }
-                  }}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{user.name || 'User'}</p>
-                  <p className="text-xs text-gray-400 truncate">{user.email}</p>
+              <>
+                <div className="mb-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
+                      <span className="text-white font-medium">
+                        {user.name?.charAt(0).toUpperCase() || user.email.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{user.name || 'User'}</p>
+                      <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-lg transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Sign out</span>
+                  </button>
                 </div>
-              </div>
-            ) : (
-              <div className="mb-4">
-                <p className="text-sm text-gray-400">Development Mode</p>
-                <p className="text-xs text-gray-500">Configure Clerk to enable auth</p>
-              </div>
-            )}
+              </>
+            ) : null}
             <p className="text-xs text-gray-500">Invoice App v1.0</p>
           </div>
         </div>

@@ -7,26 +7,64 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model SubscriptionPlan {
+  id           String         @id @default(uuid())
+  name         String         @unique // "Free", "Pro", "Enterprise"
+  slug         String         @unique // "free", "pro", "enterprise"
+  description  String?
+  price        Float          @default(0) // Monthly price
+  currency     String         @default("USD")
+  maxUsers     Int            @default(1)
+  maxInvoices  Int            @default(-1) // -1 = unlimited
+  maxCustomers Int            @default(-1) // -1 = unlimited
+  maxExpenses  Int            @default(-1) // -1 = unlimited
+  features     String[] // Array of feature flags
+  isActive     Boolean        @default(true)
+  isPublic     Boolean        @default(true) // Show on pricing page
+  sortOrder    Int            @default(0) // Display order
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  organizations Organization[] @relation("OrganizationPlan")
+
+  @@index([slug])
+  @@index([isActive])
+}
+
 model Organization {
-  id           String                @id @default(uuid())
-  name         String
-  slug         String                @unique
-  logo         String?
-  billingEmail String
-  status       OrgStatus             @default(ACTIVE)
-  plan         BillingPlan           @default(FREE)
-  maxUsers     Int                   @default(5)
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  customers    Customer[]
-  expenses     Expense[]
-  invitations  Invitation[]
-  invoices     Invoice[]
-  settings     OrganizationSettings?
-  users        User[]
+  id                 String                @id @default(uuid())
+  name               String
+  slug               String                @unique
+  logo               String?
+  billingEmail       String
+  phone              String?
+  address            String?
+  country            String?               // ISO 3166-1 alpha-2 country code (e.g., "BG", "DE", "US")
+  registrationNumber String?
+  isVatRegistered    Boolean               @default(false)
+  vatId              String?
+  vatNumber          String? // VAT number (e.g., "BG123456789")
+  isEuBased          Boolean               @default(false) // Auto-computed from country
+  standardVatRate    Float? // Cached from countries table
+  currency           String                @default("BGN") // Company currency
+  status             OrgStatus             @default(ACTIVE)
+  plan               BillingPlan           @default(FREE) // Legacy field - kept for backward compatibility
+  planId             String?               // Reference to SubscriptionPlan
+  maxUsers           Int                   @default(5)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  customers          Customer[]
+  expenses           Expense[]
+  invitations        Invitation[]
+  invoices           Invoice[]
+  settings           OrganizationSettings?
+  users              User[]
+  subscriptionPlan   SubscriptionPlan?     @relation("OrganizationPlan", fields: [planId], references: [id])
+  countryRelation    Country?              @relation("OrganizationCountry", fields: [country], references: [id])
 
   @@index([slug])
   @@index([status])
+  @@index([country])
+  @@index([planId])
 }
 
 model OrganizationSettings {
@@ -48,8 +86,11 @@ model OrganizationSettings {
 
 model User {
   id                    String                 @id @default(uuid())
-  clerkId               String                 @unique
   email                 String                 @unique
+  passwordHash          String
+  emailVerified         Boolean                @default(false)
+  resetToken            String?                @unique
+  resetTokenExpiry      DateTime?
   name                  String?
   role                  Role                   @default(USER)
   createdAt             DateTime               @default(now())
@@ -69,8 +110,8 @@ model User {
   notes                 Note[]
   organization          Organization?          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([clerkId])
   @@index([email])
+  @@index([resetToken])
   @@index([role])
   @@index([organizationId])
   @@index([organizationId, role])
@@ -96,10 +137,19 @@ model Company {
 model Customer {
   id                    String                 @id @default(uuid())
   userId                String
+  type                  CustomerType           @default(ORGANIZATION)
   name                  String
   email                 String
   phone                 String?
   address               String?
+  country               String?                // ISO 3166-1 alpha-2 country code (e.g., "BG", "DE", "US")
+  registrationNumber    String?
+  vatNumber             String? // Customer's VAT number
+  vatNumberValidated    Boolean                @default(false) // Has VAT number been validated via VIES?
+  vatValidationDate     DateTime? // When was it validated?
+  viesValidationStatus  String? // VIES response status
+  isBusiness            Boolean                @default(true) // Business or consumer?
+  vatRuleApplicable     String? // Cached: which rule applies (DOMESTIC, INTRA_EU_REVERSE_CHARGE, etc.)
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   organizationId        String?
@@ -108,31 +158,46 @@ model Customer {
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   expenses              Expense[]
   invoices              Invoice[]
+  countryRelation       Country?               @relation("CustomerCountry", fields: [country], references: [id])
 
   @@index([userId])
   @@index([organizationId])
+  @@index([country])
+  @@index([vatNumber])
 }
 
 model Invoice {
-  id             String        @id @default(uuid())
-  userId         String
-  invoiceNumber  String        @unique
-  customerId     String
-  date           DateTime      @default(now())
-  dueDate        DateTime
-  status         String        @default("draft")
-  subtotal       Float         @default(0)
-  tax            Float         @default(0)
-  total          Float         @default(0)
-  notes          String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  organizationId String?
-  expenses       Expense[]
-  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items          InvoiceItem[]
+  id                       String        @id @default(uuid())
+  userId                   String
+  invoiceNumber            String        @unique
+  customerId               String
+  date                     DateTime      @default(now())
+  dueDate                  DateTime
+  status                   String        @default("draft")
+  subtotal                 Float         @default(0)
+  tax                      Float         @default(0)
+  total                    Float         @default(0)
+  notes                    String?
+  vatRule                  String? // Which rule was applied (DOMESTIC, INTRA_EU_REVERSE_CHARGE, etc.)
+  vatScenario              String? // More specific scenario
+  isReverseCharge          Boolean       @default(false) // Is this a reverse charge invoice?
+  isExport                 Boolean       @default(false) // Is this an export?
+  isMixedVatRates          Boolean       @default(false) // Multiple VAT rates on same invoice?
+  vatBreakdown             String? // Store VAT amounts by rate as JSON: {"20": 200.00, "9": 13.50}
+  customerVatNumber        String? // Customer's VAT number at time of invoice
+  customerCountryId        String? // Customer's country at time of invoice
+  requiresEcSalesList      Boolean       @default(false) // Must be reported in EC Sales List?
+  requiresExportDocs       Boolean       @default(false) // Export documentation required?
+  vatNote                  String? // VAT-related notes (e.g., "Reverse charge applies")
+  currency                 String        @default("BGN")
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  organizationId           String?
+  expenses                 Expense[]
+  customer                 Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  organization             Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                    InvoiceItem[]
 
   @@index([userId])
   @@index([organizationId])
@@ -140,18 +205,28 @@ model Invoice {
   @@index([status])
   @@index([date])
   @@index([createdAt])
+  @@index([vatRule])
+  @@index([isReverseCharge])
+  @@index([isExport])
 }
 
 model InvoiceItem {
-  id          String  @id @default(uuid())
-  invoiceId   String
-  description String
-  quantity    Float
-  unitPrice   Float
-  total       Float
-  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  id             String       @id @default(uuid())
+  invoiceId      String
+  description    String
+  quantity       Float
+  unitPrice      Float
+  total          Float
+  vatCategoryId  String? // VAT category at time of invoice
+  vatRateApplied Float        @default(0) // Actual VAT rate applied (e.g., 20.00)
+  vatAmount      Float        @default(0) // VAT amount for this line
+  lineSubtotal   Float        @default(0) // Subtotal before VAT
+  lineTotal      Float        @default(0) // Total including VAT
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  vatCategory    VatCategory? @relation("InvoiceItemVatCategory", fields: [vatCategoryId], references: [id])
 
   @@index([invoiceId])
+  @@index([vatCategoryId])
 }
 
 model ExpenseCategory {
@@ -267,9 +342,11 @@ model Invitation {
 }
 
 enum Role {
-  ADMIN
-  USER
-  ACCOUNTANT
+  ADMIN      // Platform admin (super admin)
+  OWNER      // Organization owner (invited by admin, can invite employees)
+  EMPLOYEE   // Organization employee (invited by owner, limited access)
+  ACCOUNTANT // Accountant role
+  USER       // Legacy/general user role
 }
 
 enum OrgStatus {
@@ -296,4 +373,78 @@ enum InvitationStatus {
   ACCEPTED
   EXPIRED
   REVOKED
+}
+
+enum CustomerType {
+  ORGANIZATION
+  PERSON
+}
+
+// ============================================
+// VAT SYSTEM MODELS
+// ============================================
+
+model Country {
+  id                String                @id // ISO 3166-1 alpha-2 code (e.g., "BG", "DE")
+  alpha3            String                @unique // ISO 3166-1 alpha-3 code (e.g., "BGR", "DEU")
+  numericCode       String? // ISO numeric code
+  nameEn            String // English name
+  nameLocal         String? // Local language name
+  isEuMember        Boolean               @default(false) // EU membership flag
+  isEeaMember       Boolean               @default(false) // EEA membership flag
+  standardVatRate   Float? // Standard VAT/GST rate (e.g., 20.00 for Bulgaria)
+  currencyCode      String? // ISO 4217 currency code (e.g., "BGN", "EUR")
+  region            String? // Geographic region
+  subRegion         String? // Geographic sub-region
+  active            Boolean               @default(true)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  countryVatRates   CountryVatRate[]
+  organizationsFrom Organization[]        @relation("OrganizationCountry")
+  customersFrom     Customer[]            @relation("CustomerCountry")
+
+  @@index([isEuMember])
+  @@index([nameEn])
+  @@index([active])
+}
+
+model VatCategory {
+  id                 String           @id @default(uuid())
+  code               String           @unique // e.g., "BOOKS", "ELECTRONICS", "HOTEL"
+  nameEn             String // English name
+  nameBg             String? // Bulgarian name
+  description        String?
+  annexIiiCategory   Int? // Reference to EU Annex III (1-24), NULL if not eligible
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  countryVatRates    CountryVatRate[]
+  invoiceItems       InvoiceItem[]    @relation("InvoiceItemVatCategory")
+
+  @@index([code])
+}
+
+model CountryVatRate {
+  id             String      @id @default(uuid())
+  countryId      String
+  vatCategoryId  String
+  vatRate        Float // e.g., 20.00, 9.00
+  rateType       VatRateType
+  effectiveFrom  DateTime // When this rate becomes active
+  effectiveUntil DateTime? // When this rate expires (NULL = current)
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  country        Country     @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  vatCategory    VatCategory @relation(fields: [vatCategoryId], references: [id], onDelete: Cascade)
+
+  @@index([countryId, vatCategoryId])
+  @@index([effectiveFrom, effectiveUntil])
+}
+
+enum VatRateType {
+  STANDARD
+  REDUCED
+  SUPER_REDUCED
+  ZERO
+  PARKING
 }

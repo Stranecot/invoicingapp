@@ -8,13 +8,21 @@ import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select } from '@/components/ui/select';
+import { CountrySelect } from '@/components/ui/country-select';
 
 interface Customer {
   id: string;
+  type: 'ORGANIZATION' | 'PERSON';
   name: string;
   email: string;
   phone?: string;
   address?: string;
+  country?: string;
+  registrationNumber?: string;
+  isBusiness?: boolean;
+  vatNumber?: string;
+  vatNumberValidated?: boolean;
 }
 
 function CustomersContent() {
@@ -24,10 +32,16 @@ function CustomersContent() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState({
+    type: 'ORGANIZATION' as 'ORGANIZATION' | 'PERSON',
     name: '',
     email: '',
     phone: '',
     address: '',
+    country: '',
+    registrationNumber: '',
+    isBusiness: true,
+    vatNumber: '',
+    vatNumberValidated: false,
   });
 
   const [loading, setLoading] = useState(true);
@@ -82,7 +96,7 @@ function CustomersContent() {
 
       setIsModalOpen(false);
       setEditingCustomer(null);
-      setFormData({ name: '', email: '', phone: '', address: '' });
+      setFormData({ type: 'ORGANIZATION', name: '', email: '', phone: '', address: '', country: '', registrationNumber: '', isBusiness: true, vatNumber: '', vatNumberValidated: false });
       fetchCustomers();
     } catch (error) {
       console.error('Error saving customer:', error);
@@ -95,10 +109,16 @@ function CustomersContent() {
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer);
     setFormData({
+      type: customer.type || 'ORGANIZATION',
       name: customer.name,
       email: customer.email,
       phone: customer.phone || '',
       address: customer.address || '',
+      country: customer.country || '',
+      registrationNumber: customer.registrationNumber || '',
+      isBusiness: customer.isBusiness ?? true,
+      vatNumber: customer.vatNumber || '',
+      vatNumberValidated: customer.vatNumberValidated || false,
     });
     setIsModalOpen(true);
   };
@@ -120,8 +140,17 @@ function CustomersContent() {
 
   const openNewCustomerModal = () => {
     setEditingCustomer(null);
-    setFormData({ name: '', email: '', phone: '', address: '' });
+    setFormData({ type: 'ORGANIZATION', name: '', email: '', phone: '', address: '', country: '', registrationNumber: '', isBusiness: true, vatNumber: '', vatNumberValidated: false });
     setIsModalOpen(true);
+  };
+
+  // Handle customer type change
+  const handleTypeChange = (newType: 'ORGANIZATION' | 'PERSON') => {
+    setFormData({
+      ...formData,
+      type: newType,
+      registrationNumber: newType === 'PERSON' ? '9999999999' : formData.registrationNumber,
+    });
   };
 
   if (loading) {
@@ -157,8 +186,17 @@ function CustomersContent() {
 
       {/* Mobile Card View */}
       <div className="md:hidden space-y-4">
-        {customers.map((customer) => (
-          <Card key={customer.id}>
+        {customers.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <div className="text-gray-600">
+                You don't have any customers yet. Click on '+ Add Customer' to add your first customer.
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          customers.map((customer) => (
+            <Card key={customer.id}>
             <CardContent className="p-4">
               <div className="flex justify-between items-start mb-3">
                 <div className="flex-1">
@@ -207,7 +245,8 @@ function CustomersContent() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Desktop Table View */}
@@ -224,8 +263,15 @@ function CustomersContent() {
                 </tr>
               </thead>
               <tbody>
-                {customers.map((customer) => (
-                  <tr key={customer.id} className="border-b hover:bg-gray-50">
+                {customers.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-12 text-center text-gray-600">
+                      You don't have any customers yet. Click on '+ Add Customer' to add your first customer.
+                    </td>
+                  </tr>
+                ) : (
+                  customers.map((customer) => (
+                    <tr key={customer.id} className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-900">{customer.name}</td>
                     <td className="py-3 px-4 text-gray-900">{customer.email}</td>
                     <td className="py-3 px-4 text-gray-900">{customer.phone || '-'}</td>
@@ -250,7 +296,8 @@ function CustomersContent() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -263,11 +310,28 @@ function CustomersContent() {
         title={editingCustomer ? 'Edit Customer' : 'Add Customer'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
+          <Select
+            label="Customer Type"
+            value={formData.type}
+            onChange={(e) => handleTypeChange(e.target.value as 'ORGANIZATION' | 'PERSON')}
+            options={[
+              { value: 'ORGANIZATION', label: 'Organization' },
+              { value: 'PERSON', label: 'Person' },
+            ]}
+            required
+          />
           <Input
-            label="Name"
+            label={formData.type === 'ORGANIZATION' ? 'Company Name' : 'Full Name'}
             required
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          />
+          <Input
+            label="Company Registration Number"
+            value={formData.registrationNumber}
+            onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
+            disabled={formData.type === 'PERSON'}
+            placeholder={formData.type === 'PERSON' ? '9999999999 (auto-filled for persons)' : 'Enter registration number'}
           />
           <Input
             label="Email"
@@ -287,6 +351,72 @@ function CustomersContent() {
             value={formData.address}
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Country <span className="text-red-500">*</span>
+            </label>
+            <CountrySelect
+              value={formData.country}
+              onChange={(value) => setFormData({ ...formData, country: value })}
+              showTaxRate
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Required for automatic VAT calculation
+            </p>
+          </div>
+
+          {/* VAT Information Section */}
+          <div className="space-y-4 pt-4 border-t">
+            <h3 className="text-sm font-semibold text-gray-900">VAT Information</h3>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="isBusiness"
+                checked={formData.isBusiness}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  isBusiness: e.target.checked,
+                  vatNumber: e.target.checked ? formData.vatNumber : '',
+                  vatNumberValidated: e.target.checked ? formData.vatNumberValidated : false,
+                })}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="isBusiness" className="text-sm font-medium text-gray-700">
+                This is a business customer (B2B)
+              </label>
+            </div>
+
+            {formData.isBusiness && (
+              <div className="space-y-3">
+                <Input
+                  label="VAT Number (Optional)"
+                  placeholder="e.g., DE123456789"
+                  value={formData.vatNumber}
+                  onChange={(e) => setFormData({ ...formData, vatNumber: e.target.value.toUpperCase() })}
+                />
+                <p className="text-xs text-gray-500">
+                  Enter the customer's VAT number for EU B2B transactions (reverse charge). Format: 2-letter country code + VAT ID
+                </p>
+
+                {formData.vatNumber && (
+                  <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <span className="text-sm text-blue-900">
+                      {formData.vatNumberValidated ? '✓ VAT number validated' : 'ℹ VAT number not yet validated'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!formData.isBusiness && (
+              <p className="text-xs text-gray-500 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                This is a consumer (B2C). Distance selling rules will apply for cross-border transactions.
+              </p>
+            )}
+          </div>
+
           <div className="flex gap-3 justify-end">
             <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={submitting}>
               Cancel

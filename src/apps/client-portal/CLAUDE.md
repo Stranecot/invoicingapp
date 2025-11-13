@@ -147,6 +147,13 @@ Connection string in `.env`: `DATABASE_URL="file:./dev.db"`
 - **Calculations**: Tax applied to subtotal, total = subtotal + tax
 - **WCAG Accessibility**: All text must meet WCAG 2.1 Level AA contrast ratio of 4.5:1 for normal text and 3:1 for large text (18pt+). This includes all invoice preview text, form labels, and interactive elements.
 
+### IMPORTANT: Process Management
+
+**DO NOT kill Node.js processes** - Killing Node.js processes may terminate the Claude Code development server and interrupt the chat session. If a process needs to be stopped for any reason:
+1. **Always ask the user first** before attempting to stop any running processes
+2. Let the user manually stop the process themselves
+3. Do not use commands like `taskkill`, `pkill`, `killall`, or similar process termination commands on Node.js processes
+
 ## Recent Updates
 
 ### October 19, 2025 - Mobile UI Consistency Update

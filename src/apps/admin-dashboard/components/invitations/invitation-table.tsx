@@ -1,11 +1,73 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InvitationStatusBadge } from './invitation-status-badge';
 import { Mail, MoreHorizontal, Send, Ban, Eye, Copy, CheckCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+
+interface DropdownMenuProps {
+  buttonId: string;
+  onViewDetails: () => void;
+  onResend?: () => void;
+  onRevoke?: () => void;
+}
+
+function DropdownMenu({ buttonId, onViewDetails, onResend, onRevoke }: DropdownMenuProps) {
+  const [position, setPosition] = useState({ top: 0, right: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const button = document.getElementById(buttonId);
+    if (button) {
+      const rect = button.getBoundingClientRect();
+      setPosition({
+        top: rect.bottom + window.scrollY + 8,
+        right: window.innerWidth - rect.right - window.scrollX,
+      });
+    }
+  }, [buttonId]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20"
+      style={{
+        top: `${position.top}px`,
+        right: `${position.right}px`,
+      }}
+    >
+      <div className="py-1">
+        <button
+          onClick={onViewDetails}
+          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+        >
+          <Eye className="w-4 h-4" />
+          View Details
+        </button>
+        {onResend && (
+          <button
+            onClick={onResend}
+            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+          >
+            <Send className="w-4 h-4" />
+            Resend
+          </button>
+        )}
+        {onRevoke && (
+          <button
+            onClick={onRevoke}
+            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+          >
+            <Ban className="w-4 h-4" />
+            Revoke
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';
 
@@ -183,8 +245,12 @@ export function InvitationTable({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => toggleMenu(invitation.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleMenu(invitation.id);
+                    }}
                     className="p-1"
+                    id={`menu-button-${invitation.id}`}
                   >
                     <MoreHorizontal className="w-5 h-5" />
                   </Button>
@@ -195,35 +261,20 @@ export function InvitationTable({
                         className="fixed inset-0 z-10"
                         onClick={() => setOpenMenuId(null)}
                       />
-                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                        <div className="py-1">
-                          <button
-                            onClick={() => handleAction(() => onViewDetails(invitation.id))}
-                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                          >
-                            <Eye className="w-4 h-4" />
-                            View Details
-                          </button>
-                          {(invitation.status === 'PENDING' || invitation.status === 'EXPIRED') && (
-                            <button
-                              onClick={() => handleAction(() => onResend(invitation.id))}
-                              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                            >
-                              <Send className="w-4 h-4" />
-                              Resend
-                            </button>
-                          )}
-                          {invitation.status === 'PENDING' && (
-                            <button
-                              onClick={() => handleAction(() => onRevoke(invitation.id))}
-                              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                            >
-                              <Ban className="w-4 h-4" />
-                              Revoke
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                      <DropdownMenu
+                        buttonId={`menu-button-${invitation.id}`}
+                        onViewDetails={() => handleAction(() => onViewDetails(invitation.id))}
+                        onResend={
+                          invitation.status === 'PENDING' || invitation.status === 'EXPIRED'
+                            ? () => handleAction(() => onResend(invitation.id))
+                            : undefined
+                        }
+                        onRevoke={
+                          invitation.status === 'PENDING'
+                            ? () => handleAction(() => onRevoke(invitation.id))
+                            : undefined
+                        }
+                      />
                     </>
                   )}
                 </div>

@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BillingPlan, OrgStatus } from '@invoice-app/database';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 const organizationSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be less than 100 characters'),
@@ -18,8 +18,9 @@ const organizationSchema = z.object({
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens only'),
   billingEmail: z.string().email('Invalid email address'),
   plan: z.nativeEnum(BillingPlan),
+  planId: z.string().optional(), // New field for subscription plan
   status: z.nativeEnum(OrgStatus),
-  maxUsers: z.number().min(1, 'Must allow at least 1 user').max(10000, 'Maximum 10000 users'),
+  maxUsers: z.number().min(1, 'Must allow at least 1 user').max(1000000, 'Maximum 1,000,000 users'),
 });
 
 export type OrganizationFormData = z.infer<typeof organizationSchema>;
@@ -39,6 +40,7 @@ export function OrganizationForm({
   submitLabel = 'Save',
   onCancel,
 }: OrganizationFormProps) {
+  const [plans, setPlans] = useState<Array<{ id: string; name: string; maxUsers: number }>>([]);
   const {
     register,
     handleSubmit,
@@ -52,6 +54,7 @@ export function OrganizationForm({
       slug: '',
       billingEmail: '',
       plan: BillingPlan.FREE,
+      planId: '',
       status: OrgStatus.ACTIVE,
       maxUsers: 5,
       ...defaultValues,
@@ -59,6 +62,23 @@ export function OrganizationForm({
   });
 
   const name = watch('name');
+  const planId = watch('planId');
+
+  // Fetch subscription plans
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const response = await fetch('/api/admin/plans?isActive=true&limit=100');
+        if (response.ok) {
+          const data = await response.json();
+          setPlans(data.plans || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch plans:', error);
+      }
+    };
+    fetchPlans();
+  }, []);
 
   // Auto-generate slug from name if creating new organization
   useEffect(() => {
@@ -70,6 +90,16 @@ export function OrganizationForm({
       setValue('slug', slug);
     }
   }, [name, defaultValues?.slug, setValue]);
+
+  // Auto-update maxUsers when plan changes
+  useEffect(() => {
+    if (planId) {
+      const selectedPlan = plans.find(p => p.id === planId);
+      if (selectedPlan) {
+        setValue('maxUsers', selectedPlan.maxUsers);
+      }
+    }
+  }, [planId, plans, setValue]);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -110,9 +140,26 @@ export function OrganizationForm({
         />
       </div>
 
+      <div>
+        <Label htmlFor="planId" required>Subscription Plan</Label>
+        <Select
+          id="planId"
+          {...register('planId')}
+          error={errors.planId?.message}
+          className="mt-1"
+          options={[
+            { value: '', label: 'Select a plan...' },
+            ...plans.map(p => ({ value: p.id, label: `${p.name} (${p.maxUsers === 999999 ? 'Unlimited' : p.maxUsers} users)` }))
+          ]}
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Selecting a plan will automatically set the max users limit
+        </p>
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor="plan" required>Plan</Label>
+          <Label htmlFor="plan" required>Legacy Plan (for backward compatibility)</Label>
           <Select
             id="plan"
             {...register('plan')}

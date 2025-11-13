@@ -72,7 +72,6 @@ export const GET = withAdminAuth(async (req: NextRequest) => {
         take: limit,
         select: {
           id: true,
-          clerkId: true,
           email: true,
           name: true,
           role: true,
@@ -95,7 +94,6 @@ export const GET = withAdminAuth(async (req: NextRequest) => {
     // Format response
     const formattedUsers = users.map((user) => ({
       id: user.id,
-      clerkId: user.clerkId,
       email: user.email,
       name: user.name,
       role: user.role,

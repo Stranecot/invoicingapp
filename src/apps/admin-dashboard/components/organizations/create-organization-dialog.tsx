@@ -15,9 +15,10 @@ import { useRouter } from 'next/navigation';
 interface CreateOrganizationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
 }
 
-export function CreateOrganizationDialog({ open, onOpenChange }: CreateOrganizationDialogProps) {
+export function CreateOrganizationDialog({ open, onOpenChange, onSuccess }: CreateOrganizationDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -40,9 +41,13 @@ export function CreateOrganizationDialog({ open, onOpenChange }: CreateOrganizat
 
       const result = await response.json();
 
-      // Close dialog and refresh
+      // Close dialog and refresh the list
       onOpenChange(false);
-      router.refresh();
+
+      // Call the onSuccess callback to refresh the list
+      if (onSuccess) {
+        onSuccess();
+      }
 
       // Optionally navigate to the new organization
       // router.push(`/organizations/${result.id}`);

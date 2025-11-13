@@ -173,8 +173,19 @@ export default function InvoicesPage() {
 
       {/* Mobile Card View */}
       <div className="md:hidden space-y-4">
-        {filteredInvoices.map((invoice) => (
-          <Card key={invoice.id}>
+        {filteredInvoices.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <div className="text-gray-600">
+                {filter === 'all'
+                  ? "You don't have any invoices yet. Click on '+ Create Invoice' to add your first invoice."
+                  : `No ${filter} invoices found. Try a different filter.`}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          filteredInvoices.map((invoice) => (
+            <Card key={invoice.id}>
             <CardContent className="p-4">
               <div className="flex justify-between items-start mb-3">
                 <div className="flex-1">
@@ -246,7 +257,8 @@ export default function InvoicesPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Desktop Table View */}
@@ -266,8 +278,17 @@ export default function InvoicesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((invoice) => (
-                  <tr key={invoice.id} className="border-b hover:bg-gray-50">
+                {filteredInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-gray-600">
+                      {filter === 'all'
+                        ? "You don't have any invoices yet. Click on '+ Create Invoice' to add your first invoice."
+                        : `No ${filter} invoices found. Try a different filter.`}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredInvoices.map((invoice) => (
+                    <tr key={invoice.id} className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-900">{invoice.invoiceNumber}</td>
                     <td className="py-3 px-4 text-gray-900">{invoice.customer.name}</td>
                     <td className="py-3 px-4 text-gray-900">{formatDate(invoice.date)}</td>
@@ -329,7 +350,8 @@ export default function InvoicesPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>

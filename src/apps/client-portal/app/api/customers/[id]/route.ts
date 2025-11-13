@@ -86,6 +86,11 @@ export async function PUT(
     delete data.userId;
     delete data.organizationId;
 
+    // CRITICAL SECURITY: Auto-fill registrationNumber for PERSON type
+    if (data.type === 'PERSON') {
+      data.registrationNumber = '9999999999';
+    }
+
     const customer = await prisma.customer.update({
       where: { id },
       data,

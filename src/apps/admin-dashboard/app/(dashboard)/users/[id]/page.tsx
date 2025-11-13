@@ -248,12 +248,6 @@ export default async function UserDetailPage({ params }: UserDetailPageProps) {
                   <dt className="text-sm font-medium text-gray-600">User ID</dt>
                   <dd className="mt-1 text-sm text-gray-900 font-mono">{user.id}</dd>
                 </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-600">Clerk ID</dt>
-                  <dd className="mt-1 text-sm text-gray-900 font-mono">
-                    {user.clerkId}
-                  </dd>
-                </div>
                 {user.invitationId && (
                   <div>
                     <dt className="text-sm font-medium text-gray-600">

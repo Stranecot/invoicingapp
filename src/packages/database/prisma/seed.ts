@@ -1,7 +1,63 @@
 import { prisma, generateInvitationToken, generateInvitationExpiry } from '../src/index';
+import bcrypt from 'bcryptjs';
 
 async function main() {
-  console.log('Starting seed...');
+  console.log('🌱 Starting database seed...');
+
+  // Create Ingenious organization first (our main admin org)
+  const ingenious = await prisma.organization.upsert({
+    where: { slug: 'ingenious' },
+    update: {
+      name: 'Ingenious',
+      billingEmail: 'admin@ingenious.bg',
+      status: 'ACTIVE',
+      plan: 'ENTERPRISE',
+      maxUsers: 999,
+    },
+    create: {
+      name: 'Ingenious',
+      slug: 'ingenious',
+      billingEmail: 'admin@ingenious.bg',
+      status: 'ACTIVE',
+      plan: 'ENTERPRISE',
+      maxUsers: 999,
+      settings: {
+        create: {
+          primaryColor: '#3B82F6',
+          invoicePrefix: 'INV',
+          taxRate: 0,
+          currency: 'EUR',
+          allowSignup: false, // Invitation-only
+          requireApproval: true,
+        },
+      },
+    },
+  });
+  console.log('✓ Organization created: Ingenious');
+
+  // Create admin user for Ingenious
+  const adminPasswordHash = await bcrypt.hash('Ingen25!', 10);
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@ingenious.bg' },
+    update: {
+      passwordHash: adminPasswordHash,
+      name: 'Admin User',
+      role: 'ADMIN',
+      organizationId: ingenious.id,
+      emailVerified: true,
+      isActive: true,
+    },
+    create: {
+      email: 'admin@ingenious.bg',
+      passwordHash: adminPasswordHash,
+      name: 'Admin User',
+      role: 'ADMIN',
+      organizationId: ingenious.id,
+      emailVerified: true,
+      isActive: true,
+    },
+  });
+  console.log('✓ Admin user created: admin@ingenious.bg');
 
   // Create Sample Organizations
   const org1 = await prisma.organization.create({
@@ -48,24 +104,13 @@ async function main() {
   });
   console.log('Created organization:', org2.name);
 
-  // Create Admin User
-  const admin = await prisma.user.create({
-    data: {
-      clerkId: 'admin_test_clerk_id',
-      email: 'admin@invoiceapp.com',
-      name: 'Admin User',
-      role: 'ADMIN',
-      isActive: true,
-      lastLoginAt: new Date(),
-    },
-  });
-  console.log('Created admin user:', admin.email);
-
   // Create Regular User 1 (Business Owner)
+  const user1PasswordHash = await bcrypt.hash('password123', 10);
   const user1 = await prisma.user.create({
     data: {
-      clerkId: 'user1_test_clerk_id',
       email: 'john@business.com',
+      passwordHash: user1PasswordHash,
+      emailVerified: true,
       name: 'John Business',
       role: 'USER',
       organizationId: org1.id,
@@ -85,10 +130,12 @@ async function main() {
   console.log('Created user1:', user1.email);
 
   // Create Regular User 2 (Another Business Owner)
+  const user2PasswordHash = await bcrypt.hash('password123', 10);
   const user2 = await prisma.user.create({
     data: {
-      clerkId: 'user2_test_clerk_id',
       email: 'sarah@consulting.com',
+      passwordHash: user2PasswordHash,
+      emailVerified: true,
       name: 'Sarah Consultant',
       role: 'USER',
       organizationId: org2.id,
@@ -108,10 +155,12 @@ async function main() {
   console.log('Created user2:', user2.email);
 
   // Create Accountant User
+  const accountantPasswordHash = await bcrypt.hash('password123', 10);
   const accountant = await prisma.user.create({
     data: {
-      clerkId: 'accountant_test_clerk_id',
       email: 'accountant@cpa.com',
+      passwordHash: accountantPasswordHash,
+      emailVerified: true,
       name: 'Emma Accountant',
       role: 'ACCOUNTANT',
       isActive: true,
@@ -576,7 +625,7 @@ async function main() {
       token: generateInvitationToken(),
       customerIds: [],
       acceptedAt: new Date(),
-      acceptedBy: 'clerk_accepted_user_id',
+      acceptedBy: user1.id, // User who accepted the invitation
     },
   });
 
@@ -599,12 +648,17 @@ async function main() {
 
   console.log('Created sample invitations');
 
+  console.log('\n🎉 Database seeded successfully!');
   console.log('\n=== Seed Summary ===');
-  console.log('Organizations created:');
+  console.log('\n📋 Admin Credentials:');
+  console.log('   Email: admin@ingenious.bg');
+  console.log('   Password: Ingen25!');
+  console.log('   Organization: Ingenious');
+  console.log('\nOrganizations created:');
+  console.log('  - Ingenious (slug: ingenious, plan: ENTERPRISE) ⭐');
   console.log('  - Acme Corporation (slug: acme-corp, plan: PRO)');
   console.log('  - Tech Consulting Pro (slug: tech-consulting-pro, plan: FREE)');
-  console.log('\nUsers created:');
-  console.log('  - Admin: admin@invoiceapp.com (ADMIN)');
+  console.log('\nDemo Users created (password: password123):');
   console.log('  - User1: john@business.com (USER) - Acme Corporation');
   console.log('  - User2: sarah@consulting.com (USER) - Tech Consulting Pro');
   console.log('  - Accountant: accountant@cpa.com (ACCOUNTANT)');
@@ -623,7 +677,7 @@ async function main() {
   console.log('  - 1 ACCEPTED invitation (Org: Acme Corporation)');
   console.log('  - 1 EXPIRED invitation (Org: Tech Consulting Pro)');
   console.log('  - Invitation tokens are cryptographically secure');
-  console.log('\nDatabase seeded successfully!');
+  console.log('\n⚠️  Please change the admin password after first login!\n');
 }
 
 main()

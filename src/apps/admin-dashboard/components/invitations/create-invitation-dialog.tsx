@@ -33,7 +33,7 @@ export function CreateInvitationDialog({
   onSuccess,
 }: CreateInvitationDialogProps) {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'ADMIN' | 'USER' | 'ACCOUNTANT'>('USER');
+  const [role, setRole] = useState<'ADMIN' | 'OWNER' | 'ACCOUNTANT'>('OWNER');
   const [organizationId, setOrganizationId] = useState('');
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,7 +47,7 @@ export function CreateInvitationDialog({
       fetchOrganizations();
       // Reset form
       setEmail('');
-      setRole('USER');
+      setRole('OWNER');
       setOrganizationId('');
       setError('');
       setSuccess(false);
@@ -62,9 +62,9 @@ export function CreateInvitationDialog({
         throw new Error('Failed to fetch organizations');
       }
       const data = await response.json();
-      setOrganizations(data.data || []);
-      if (data.data && data.data.length > 0) {
-        setOrganizationId(data.data[0].id);
+      setOrganizations(data.organizations || []);
+      if (data.organizations && data.organizations.length > 0) {
+        setOrganizationId(data.organizations[0].id);
       }
     } catch (err) {
       console.error('Error fetching organizations:', err);
@@ -192,11 +192,11 @@ export function CreateInvitationDialog({
               <Select
                 label="Role"
                 value={role}
-                onChange={(e) => setRole(e.target.value as 'ADMIN' | 'USER' | 'ACCOUNTANT')}
+                onChange={(e) => setRole(e.target.value as 'ADMIN' | 'OWNER' | 'ACCOUNTANT')}
                 options={[
-                  { value: 'USER', label: 'User - Basic access' },
+                  { value: 'OWNER', label: 'Owner - Organization owner (can invite employees)' },
                   { value: 'ACCOUNTANT', label: 'Accountant - Financial access' },
-                  { value: 'ADMIN', label: 'Admin - Full access' },
+                  { value: 'ADMIN', label: 'Admin - Platform admin' },
                 ]}
                 required
                 disabled={loading || success}

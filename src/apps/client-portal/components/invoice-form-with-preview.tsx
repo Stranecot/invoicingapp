@@ -35,6 +35,10 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [showPreview, setShowPreview] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [organization, setOrganization] = useState<any>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [vatCalculation, setVatCalculation] = useState<any>(null);
+  const [calculatingVat, setCalculatingVat] = useState(false);
   const [formData, setFormData] = useState({
     customerId: invoice?.customerId || '',
     invoiceNumber: invoice?.invoiceNumber || '',
@@ -49,7 +53,9 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
   );
 
   useEffect(() => {
+    console.log('[VAT DEBUG] Component mounted');
     fetchCustomers();
+    fetchOrganization();
 
     // Generate invoice number on client side only to avoid hydration mismatch
     if (!invoice && !formData.invoiceNumber) {
@@ -65,6 +71,52 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
     const data = await res.json();
     setCustomers(data);
   };
+
+  const fetchOrganization = async () => {
+    try {
+      console.log('[VAT DEBUG] Fetching organization...');
+      const res = await fetch('/api/organizations/current');
+      console.log('[VAT DEBUG] Organization response status:', res.status);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[VAT DEBUG] Organization data:', data);
+        setOrganization(data);
+      } else {
+        console.error('[VAT DEBUG] Failed to fetch organization, status:', res.status);
+      }
+    } catch (error) {
+      console.error('[VAT DEBUG] Error fetching organization:', error);
+    }
+  };
+
+  const fetchCustomer = async (customerId: string) => {
+    try {
+      console.log('[VAT DEBUG] Fetching customer:', customerId);
+      const res = await fetch(`/api/customers/${customerId}`);
+      console.log('[VAT DEBUG] Customer response status:', res.status);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[VAT DEBUG] Customer data:', data);
+        setSelectedCustomer(data);
+      } else {
+        console.error('[VAT DEBUG] Failed to fetch customer, status:', res.status);
+      }
+    } catch (error) {
+      console.error('[VAT DEBUG] Error fetching customer:', error);
+    }
+  };
+
+  // Fetch customer details when customer is selected
+  useEffect(() => {
+    console.log('[VAT DEBUG] Customer ID changed:', formData.customerId);
+    if (formData.customerId) {
+      fetchCustomer(formData.customerId);
+    } else {
+      console.log('[VAT DEBUG] No customer selected, clearing customer and VAT calculation');
+      setSelectedCustomer(null);
+      setVatCalculation(null);
+    }
+  }, [formData.customerId]);
 
   const addItem = () => {
     setItems([...items, { description: '', quantity: 1, unitPrice: 0, total: 0 }]);
@@ -89,14 +141,110 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
     setItems(newItems);
   };
 
-  const calculateTotals = () => {
-    const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-    const tax = subtotal * ((company?.taxRate || 0) / 100);
-    const total = subtotal + tax;
-    return { subtotal, tax, total };
+  // Calculate VAT preview whenever items, customer, or organization changes
+  useEffect(() => {
+    console.log('[VAT DEBUG] useEffect triggered - organization:', !!organization, 'selectedCustomer:', !!selectedCustomer, 'items:', items.length);
+    if (organization?.country && selectedCustomer?.country && items.length > 0) {
+      const hasValidItems = items.every(
+        item => item.description && item.quantity > 0 && item.unitPrice >= 0
+      );
+      console.log('[VAT DEBUG] Has valid items:', hasValidItems);
+      if (hasValidItems) {
+        console.log('[VAT DEBUG] Setting timeout for VAT calculation (500ms debounce)');
+        const timeoutId = setTimeout(() => {
+          console.log('[VAT DEBUG] Debounce timeout completed, calling calculateVatPreview');
+          calculateVatPreview();
+        }, 500);
+        return () => {
+          console.log('[VAT DEBUG] Clearing debounce timeout');
+          clearTimeout(timeoutId);
+        };
+      }
+    } else {
+      console.log('[VAT DEBUG] Not triggering VAT calculation - missing conditions');
+    }
+  }, [organization, selectedCustomer, items, formData.date]);
+
+  const calculateVatPreview = async () => {
+    console.log('[VAT DEBUG] calculateVatPreview called');
+    console.log('[VAT DEBUG] Organization country:', organization?.country);
+    console.log('[VAT DEBUG] Customer country:', selectedCustomer?.country);
+    console.log('[VAT DEBUG] Items length:', items.length);
+
+    if (!organization?.country || !selectedCustomer?.country || items.length === 0) {
+      console.log('[VAT DEBUG] Skipping VAT calculation - missing required data');
+      setVatCalculation(null);
+      return;
+    }
+
+    const hasValidItems = items.every(
+      item => item.description && item.quantity > 0 && item.unitPrice >= 0
+    );
+    console.log('[VAT DEBUG] Has valid items:', hasValidItems);
+    if (!hasValidItems) {
+      console.log('[VAT DEBUG] Skipping VAT calculation - invalid items');
+      setVatCalculation(null);
+      return;
+    }
+
+    const requestBody = {
+      supplier: {
+        country: organization.country,
+        isVatRegistered: !!organization.vatId,
+      },
+      customer: {
+        country: selectedCustomer.country,
+        vatNumber: selectedCustomer.vatNumber || null,
+        vatNumberValidated: selectedCustomer.vatNumberValidated || false,
+        isBusiness: selectedCustomer.isBusiness || false,
+      },
+      lineItems: items.map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        vatCategoryCode: 'STANDARD',
+      })),
+      invoiceDate: formData.date,
+    };
+
+    console.log('[VAT DEBUG] Calling VAT API with request:', JSON.stringify(requestBody, null, 2));
+    setCalculatingVat(true);
+    try {
+      const res = await fetch('/api/vat/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log('[VAT DEBUG] VAT API response status:', res.status);
+
+      if (res.ok) {
+        const result = await res.json();
+        console.log('[VAT DEBUG] VAT API response:', JSON.stringify(result, null, 2));
+        if (result.success) {
+          console.log('[VAT DEBUG] Setting VAT calculation result');
+          setVatCalculation(result.data);
+        } else {
+          console.error('[VAT DEBUG] VAT calculation failed:', result.error);
+          setVatCalculation(null);
+        }
+      } else {
+        const errorText = await res.text();
+        console.error('[VAT DEBUG] VAT calculation request failed. Status:', res.status, 'Response:', errorText);
+        setVatCalculation(null);
+      }
+    } catch (error) {
+      console.error('[VAT DEBUG] Error calculating VAT:', error);
+      setVatCalculation(null);
+    } finally {
+      setCalculatingVat(false);
+    }
   };
 
-  const { subtotal, tax, total } = calculateTotals();
+  // Calculate totals from VAT calculation or default
+  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const tax = vatCalculation?.calculation?.totalVAT || 0;
+  const total = vatCalculation?.calculation?.grandTotal || subtotal;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,8 +293,8 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
     }
   };
 
-  // Get current customer for preview
-  const selectedCustomer = customers.find(c => c.id === formData.customerId) || null;
+  // Get current customer for preview (use selectedCustomer from state if available, otherwise find from customers list)
+  const customerForPreview = selectedCustomer || customers.find(c => c.id === formData.customerId) || null;
 
   return (
     <div className="space-y-6">
@@ -303,13 +451,47 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
                       <span className="font-medium text-gray-900">${subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between w-full md:w-64">
-                      <span className="text-gray-600">Tax ({company?.taxRate || 0}%):</span>
-                      <span className="font-medium text-gray-900">${tax.toFixed(2)}</span>
+                      <span className="text-gray-600">VAT:</span>
+                      {calculatingVat ? (
+                        <span className="font-medium text-gray-500 text-sm">Calculating...</span>
+                      ) : vatCalculation?.calculation ? (
+                        <span className="font-medium text-gray-900">${tax.toFixed(2)}</span>
+                      ) : (
+                        <span className="font-medium text-gray-500 text-sm">
+                          {formData.customerId ? 'Enter items' : 'Select customer'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between w-full md:w-64 text-lg font-bold bg-blue-700 text-white rounded-lg py-3 px-4">
                       <span>Total:</span>
                       <span>${total.toFixed(2)}</span>
                     </div>
+                    {vatCalculation?.vatRule && (
+                      <div className="w-full md:w-64 mt-2 p-3 bg-blue-50 rounded-lg">
+                        <p className="text-xs font-medium text-blue-900 mb-1">
+                          VAT Rule: {vatCalculation.vatRule.rule}
+                        </p>
+                        <p className="text-xs text-blue-700">
+                          {vatCalculation.vatRule.explanation}
+                        </p>
+                        {vatCalculation.validation?.warnings?.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-blue-200">
+                            {vatCalculation.validation.warnings.map((warning: string, idx: number) => (
+                              <p key={idx} className="text-xs text-yellow-700">
+                                ⚠ {warning}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {formData.customerId && !vatCalculation && !calculatingVat && (
+                      <div className="w-full md:w-64 mt-2">
+                        <p className="text-xs text-gray-500 text-right">
+                          ℹ VAT will be calculated automatically based on organization and customer countries.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -355,9 +537,17 @@ export function InvoiceFormWithPreview({ invoice, company }: InvoiceFormWithPrev
                 total,
                 notes: formData.notes,
               }}
-              customerData={selectedCustomer}
+              customerData={customerForPreview}
               companyData={company}
               items={items}
+              vatInfo={
+                vatCalculation
+                  ? {
+                      rule: vatCalculation.vatRule?.rule,
+                      effectiveRate: subtotal > 0 ? (tax / subtotal) * 100 : 0,
+                    }
+                  : null
+              }
             />
           </div>
         </div>

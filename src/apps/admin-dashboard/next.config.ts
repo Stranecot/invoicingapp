@@ -13,11 +13,6 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
 
-  // Enable instrumentation for Sentry
-  experimental: {
-    instrumentationHook: true,
-  },
-
   // Sentry webpack plugin options
   webpack: (config, { isServer }) => {
     if (!isServer) {

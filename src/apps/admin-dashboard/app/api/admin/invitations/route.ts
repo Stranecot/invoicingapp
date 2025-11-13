@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, Role, InvitationStatus, generateInvitationToken, generateInvitationExpiry } from '@invoice-app/database';
 import { withAdminAuth } from '@/lib/auth';
+import { sendInvitationEmail } from '@invoice-app/email';
+import { ensureEmailClientInitialized, getAppUrl, getRecipientEmail } from '@/lib/email';
 import { z } from 'zod';
 
 /**
@@ -8,7 +10,7 @@ import { z } from 'zod';
  */
 const createInvitationSchema = z.object({
   email: z.string().email('Invalid email format'),
-  role: z.enum(['ADMIN', 'USER', 'ACCOUNTANT']),
+  role: z.enum(['ADMIN', 'OWNER', 'ACCOUNTANT']),
   organizationId: z.string().uuid('Invalid organization ID'),
   customerIds: z.array(z.string()).optional(),
 });
@@ -150,10 +152,10 @@ export const GET = withAdminAuth(async (request: NextRequest) => {
  * POST /api/admin/invitations
  * Creates a new invitation for a user to join an organization
  * Requires: ADMIN role
- * Body: { email: string, role: 'ADMIN' | 'USER' | 'ACCOUNTANT', organizationId: string, customerIds?: string[] }
+ * Body: { email: string, role: 'ADMIN' | 'OWNER' | 'ACCOUNTANT', organizationId: string, customerIds?: string[] }
  * Returns: Created invitation object (token excluded)
  */
-export const POST = withAdminAuth(async (request: NextRequest) => {
+export const POST = withAdminAuth(async (request: NextRequest, adminUser) => {
   try {
     // Parse and validate request body
     const body = await request.json();
@@ -223,26 +225,11 @@ export const POST = withAdminAuth(async (request: NextRequest) => {
       );
     }
 
-    // Get admin user for invitedBy
-    const adminUser = await prisma.user.findFirst({
-      where: {
-        role: 'ADMIN',
-        organizationId,
-      },
-    });
-
-    if (!adminUser) {
-      return NextResponse.json(
-        { error: 'No admin user found for this organization' },
-        { status: 400 }
-      );
-    }
-
     // Generate invitation token and expiry
     const token = generateInvitationToken();
     const expiresAt = generateInvitationExpiry(7); // 7 days from now
 
-    // Create invitation
+    // Create invitation (invitedBy is the current platform admin)
     const invitation = await prisma.invitation.create({
       data: {
         email,
@@ -267,9 +254,45 @@ export const POST = withAdminAuth(async (request: NextRequest) => {
 
     console.log('[Admin] Invitation created successfully:', invitation.id);
 
-    // TODO: Send invitation email
-    // This will need the email service configured
-    // For now, we'll just return the invitation
+    // Send invitation email (don't fail if email fails)
+    console.log('[Email] Checking email service initialization...');
+    if (ensureEmailClientInitialized()) {
+      try {
+        const appUrl = getAppUrl();
+        // For admin dashboard invitations, redirect to client portal for acceptance
+        const clientPortalUrl = process.env.CLIENT_PORTAL_URL || 'http://localhost:3000';
+        const acceptUrl = `${clientPortalUrl}/accept-invitation?token=${token}`;
+        const recipientEmail = getRecipientEmail(email);
+
+        console.log('[Email] Sending invitation email...');
+        console.log('[Email] To:', recipientEmail);
+        console.log('[Email] Organization:', invitation.organization.name);
+        console.log('[Email] Role:', role);
+        console.log('[Email] Accept URL:', acceptUrl);
+
+        const emailResult = await sendInvitationEmail({
+          to: recipientEmail,
+          organizationName: invitation.organization.name,
+          inviterName: adminUser.name || adminUser.email,
+          role: role,
+          token,
+          expiresAt,
+          acceptUrl,
+        });
+
+        if (emailResult.success) {
+          console.log('[Email] ✅ Invitation email sent successfully:', emailResult.messageId);
+        } else {
+          console.error('[Email] ❌ Failed to send invitation email:', emailResult.error);
+          // Don't fail the request - invitation was created successfully
+        }
+      } catch (emailError) {
+        console.error('[Email] ❌ Exception sending invitation email:', emailError);
+        // Don't fail the request - invitation was created successfully
+      }
+    } else {
+      console.warn('[Email] ⚠️ Email service not configured - invitation created but email not sent');
+    }
 
     // Return invitation without sensitive token
     const { token: _token, ...sanitizedInvitation } = invitation;

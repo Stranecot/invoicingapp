@@ -12,7 +12,10 @@ export function MobileNav() {
       <div className="flex items-center justify-around">
         {navItems.slice(0, 4).map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
+          // For root path, only match exactly. For others, match prefix too
+          const isActive = item.href === '/'
+            ? pathname === '/'
+            : pathname === item.href || pathname?.startsWith(item.href + '/');
 
           return (
             <Link

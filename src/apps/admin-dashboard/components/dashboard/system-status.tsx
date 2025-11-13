@@ -36,11 +36,11 @@ export function SystemStatus({ loading = false }: SystemStatusProps) {
       message: 'Messages sending successfully',
     },
     {
-      name: 'Clerk Auth',
+      name: 'Authentication',
       status: 'operational',
       icon: Shield,
       lastChecked: new Date(),
-      message: 'Authentication service active',
+      message: 'JWT authentication active',
     },
     {
       name: 'Backup System',

@@ -16,6 +16,13 @@ const updateOrganizationSchema = z.object({
       message: 'Slug cannot start or end with a hyphen',
     })
     .optional(),
+  billingEmail: z.string().email('Invalid email address').optional(),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  country: z.string().optional(),
+  registrationNumber: z.string().optional(),
+  isVatRegistered: z.boolean().optional(),
+  vatId: z.string().optional(),
   settings: z.object({
     allowUserInvitations: z.boolean().optional(),
     defaultUserRole: z.enum(['USER', 'ACCOUNTANT']).optional(),
@@ -34,21 +41,30 @@ const updateOrganizationSchema = z.object({
 /**
  * GET /api/organizations/current
  * Gets the current user's organization with stats
- * Requires: ADMIN role
+ * Requires: OWNER or ADMIN role
  * Returns: Organization with user count, invitation count, and active users
  */
 export async function GET(request: NextRequest) {
   try {
-    // Require admin access
-    const admin = await requireAdmin();
+    // Get current user (allow OWNER and ADMIN)
+    const { getCurrentUser } = await import('@invoice-app/auth/server');
+    const user = await getCurrentUser();
 
-    // Get admin's organization with all related data
-    const adminUser = await prisma.user.findUnique({
-      where: { id: admin.id },
+    if (!user || (user.role !== 'OWNER' && user.role !== 'ADMIN')) {
+      return NextResponse.json(
+        { error: 'Forbidden: Only organization owners and admins can access this' },
+        { status: 403 }
+      );
+    }
+
+    // Get user's organization with all related data
+    const userWithOrg = await prisma.user.findUnique({
+      where: { id: user.id },
       include: {
         organization: {
           include: {
             settings: true,
+            subscriptionPlan: true,
             _count: {
               select: {
                 users: true,
@@ -62,14 +78,34 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    if (!adminUser?.organization) {
+    if (!userWithOrg?.organization) {
       return NextResponse.json(
-        { error: 'Admin must belong to an organization' },
+        { error: 'User must belong to an organization' },
         { status: 400 }
       );
     }
 
-    const organization = adminUser.organization;
+    const organization = userWithOrg.organization;
+
+    // Determine maxUsers with fallback logic:
+    // 1. If subscriptionPlan exists, use its maxUsers
+    // 2. If organization.maxUsers > 0, use that
+    // 3. Otherwise, map legacy plan enum to maxUsers (FREE=5, PRO=25, ENTERPRISE=999)
+    let effectiveMaxUsers = organization.subscriptionPlan?.maxUsers;
+
+    if (!effectiveMaxUsers) {
+      if (organization.maxUsers > 0) {
+        effectiveMaxUsers = organization.maxUsers;
+      } else {
+        // Fallback based on legacy plan enum
+        const planLimits = {
+          FREE: 5,
+          PRO: 25,
+          ENTERPRISE: 999,
+        };
+        effectiveMaxUsers = planLimits[organization.plan] ?? 5;
+      }
+    }
 
     // Get active users count
     const activeUsersCount = await prisma.user.count({
@@ -128,9 +164,15 @@ export async function GET(request: NextRequest) {
       slug: organization.slug,
       logo: organization.logo,
       billingEmail: organization.billingEmail,
+      phone: organization.phone,
+      address: organization.address,
+      country: organization.country,
+      registrationNumber: organization.registrationNumber,
+      isVatRegistered: organization.isVatRegistered,
+      vatId: organization.vatId,
       status: organization.status,
       plan: organization.plan,
-      maxUsers: organization.maxUsers,
+      maxUsers: effectiveMaxUsers,
       createdAt: organization.createdAt,
       updatedAt: organization.updatedAt,
       settings,
@@ -139,7 +181,7 @@ export async function GET(request: NextRequest) {
         activeUsers: activeUsersCount,
         pendingInvitations: organization._count.invitations,
         usersByRole: roleBreakdown,
-        usagePercentage: Math.round((organization._count.users / organization.maxUsers) * 100),
+        usagePercentage: Math.round((organization._count.users / effectiveMaxUsers) * 100),
       },
     });
   } catch (error) {
@@ -162,24 +204,32 @@ export async function GET(request: NextRequest) {
 /**
  * PATCH /api/organizations/current
  * Updates the current user's organization
- * Requires: ADMIN role
- * Body: { name?: string, slug?: string, settings?: object }
+ * Requires: OWNER or ADMIN role
+ * Body: { name?: string, slug?: string, phone?: string, address?: string, registrationNumber?: string, isVatRegistered?: boolean, vatId?: string, settings?: object }
  * Returns: Updated organization
  */
 export async function PATCH(request: NextRequest) {
   try {
-    // Require admin access
-    const admin = await requireAdmin();
+    // Get current user (allow OWNER and ADMIN)
+    const { getCurrentUser } = await import('@invoice-app/auth/server');
+    const user = await getCurrentUser();
 
-    // Get admin's organization
-    const adminUser = await prisma.user.findUnique({
-      where: { id: admin.id },
+    if (!user || (user.role !== 'OWNER' && user.role !== 'ADMIN')) {
+      return NextResponse.json(
+        { error: 'Forbidden: Only organization owners and admins can update this' },
+        { status: 403 }
+      );
+    }
+
+    // Get user's organization
+    const userWithOrg = await prisma.user.findUnique({
+      where: { id: user.id },
       select: { organizationId: true },
     });
 
-    if (!adminUser?.organizationId) {
+    if (!userWithOrg?.organizationId) {
       return NextResponse.json(
-        { error: 'Admin must belong to an organization' },
+        { error: 'User must belong to an organization' },
         { status: 400 }
       );
     }
@@ -195,12 +245,12 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const { name, slug, settings } = validation.data;
+    const { name, slug, billingEmail, phone, address, country, registrationNumber, isVatRegistered, vatId, settings } = validation.data;
 
     // Check if slug is unique (if provided and different from current)
     if (slug) {
       const currentOrg = await prisma.organization.findUnique({
-        where: { id: adminUser.organizationId },
+        where: { id: userWithOrg.organizationId },
         select: { slug: true },
       });
 
@@ -220,11 +270,18 @@ export async function PATCH(request: NextRequest) {
 
     // Update organization
     const updateData: any = {};
-    if (name) updateData.name = name;
-    if (slug) updateData.slug = slug;
+    if (name !== undefined) updateData.name = name;
+    if (slug !== undefined) updateData.slug = slug;
+    if (billingEmail !== undefined) updateData.billingEmail = billingEmail;
+    if (phone !== undefined) updateData.phone = phone;
+    if (address !== undefined) updateData.address = address;
+    if (country !== undefined) updateData.country = country;
+    if (registrationNumber !== undefined) updateData.registrationNumber = registrationNumber;
+    if (isVatRegistered !== undefined) updateData.isVatRegistered = isVatRegistered;
+    if (vatId !== undefined) updateData.vatId = vatId;
 
     const updatedOrganization = await prisma.organization.update({
-      where: { id: adminUser.organizationId },
+      where: { id: userWithOrg.organizationId },
       data: updateData,
       include: {
         settings: true,
@@ -246,10 +303,10 @@ export async function PATCH(request: NextRequest) {
       // Update or create settings
       if (Object.keys(settingsUpdateData).length > 0) {
         await prisma.organizationSettings.upsert({
-          where: { organizationId: adminUser.organizationId },
+          where: { organizationId: userWithOrg.organizationId },
           update: settingsUpdateData,
           create: {
-            organizationId: adminUser.organizationId,
+            organizationId: userWithOrg.organizationId,
             ...settingsUpdateData,
           },
         });
@@ -258,7 +315,7 @@ export async function PATCH(request: NextRequest) {
 
     // Fetch updated organization with settings
     const finalOrganization = await prisma.organization.findUnique({
-      where: { id: adminUser.organizationId },
+      where: { id: userWithOrg.organizationId },
       include: {
         settings: true,
       },

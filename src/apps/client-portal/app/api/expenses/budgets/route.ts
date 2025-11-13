@@ -40,10 +40,17 @@ export async function GET() {
             endDate = endOfMonth(now);
         }
 
+        // Get the budget user's organization for security
+        const budgetUser = await prisma.user.findUnique({
+          where: { id: budget.userId },
+          select: { organizationId: true },
+        });
+
         const expenses = await prisma.expense.aggregate({
           where: {
             userId: budget.userId,
             categoryId: budget.categoryId,
+            organizationId: budgetUser?.organizationId || undefined,
             date: {
               gte: startDate,
               lte: endDate,

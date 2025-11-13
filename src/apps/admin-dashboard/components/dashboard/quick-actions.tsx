@@ -55,24 +55,24 @@ export function QuickActions() {
         <CardDescription>Common administrative tasks</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-3">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
               <Link
                 key={action.title}
                 href={action.href}
-                className="group p-4 border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-md transition-all"
+                className="group p-3 sm:p-4 border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-md transition-all"
               >
                 <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-lg ${action.iconBgColor} group-hover:scale-110 transition-transform`}>
-                    <Icon className={`w-5 h-5 ${action.iconColor}`} />
+                  <div className={`p-2 rounded-lg ${action.iconBgColor} group-hover:scale-110 transition-transform flex-shrink-0`}>
+                    <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${action.iconColor}`} />
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900 text-sm mb-1">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-gray-900 text-sm mb-0.5 truncate">
                       {action.title}
                     </h4>
-                    <p className="text-xs text-gray-600">{action.description}</p>
+                    <p className="text-xs text-gray-600 line-clamp-2">{action.description}</p>
                   </div>
                 </div>
               </Link>

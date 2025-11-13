@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, Role, InvitationStatus, generateInvitationToken, generateInvitationExpiry } from '@invoice-app/database';
+import { prisma, Role, InvitationStatus, generateInvitationToken, generateInvitationExpiry, canInviteMoreUsers, canInviteUsers, getRemainingInvitations } from '@invoice-app/database';
 import { getCurrentUser, requireAdmin } from '@invoice-app/auth/server';
 import { sendInvitationEmail } from '@invoice-app/email';
 import { ensureEmailClientInitialized, getAppUrl, getRecipientEmail } from '@/lib/email';
@@ -10,15 +10,15 @@ import { z } from 'zod';
  */
 const createInvitationSchema = z.object({
   email: z.string().email('Invalid email format'),
-  role: z.enum(['ADMIN', 'USER', 'ACCOUNTANT'], {
-    errorMap: () => ({ message: 'Role must be ADMIN, USER, or ACCOUNTANT' }),
+  role: z.enum(['ADMIN', 'USER', 'ACCOUNTANT', 'EMPLOYEE'], {
+    errorMap: () => ({ message: 'Role must be ADMIN, USER, ACCOUNTANT, or EMPLOYEE' }),
   }),
 });
 
 /**
  * GET /api/invitations
- * Lists all invitations for the admin's organization with optional filtering
- * Requires: ADMIN role
+ * Lists all invitations for the user's organization with optional filtering
+ * Requires: ADMIN or OWNER role
  * Query params:
  *   - status: Filter by invitation status (PENDING, ACCEPTED, EXPIRED, REVOKED)
  *   - email: Filter by email (partial match)
@@ -27,19 +27,37 @@ const createInvitationSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    // Require admin access
-    const admin = await requireAdmin();
+    // Get current user
+    const currentUser = await getCurrentUser();
 
-    // Get admin's organization
-    const adminUser = await prisma.user.findUnique({
-      where: { id: admin.id },
-      select: { organizationId: true },
+    if (!currentUser) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Get user's organization
+    const user = await prisma.user.findUnique({
+      where: { id: currentUser.id },
+      select: {
+        organizationId: true,
+        role: true,
+      },
     });
 
-    if (!adminUser?.organizationId) {
+    if (!user?.organizationId) {
       return NextResponse.json(
-        { error: 'Admin must belong to an organization' },
+        { error: 'User must belong to an organization' },
         { status: 400 }
+      );
+    }
+
+    // Check if user has permission to view invitations
+    if (!canInviteUsers(user.role)) {
+      return NextResponse.json(
+        { error: 'Only OWNER role can view invitations' },
+        { status: 403 }
       );
     }
 
@@ -52,7 +70,7 @@ export async function GET(request: NextRequest) {
 
     // Build where clause
     const where: any = {
-      organizationId: adminUser.organizationId,
+      organizationId: user.organizationId,
     };
 
     if (status) {
@@ -118,24 +136,58 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/invitations
  * Creates a new invitation for a user to join the organization
- * Requires: ADMIN role
- * Body: { email: string, role: 'ADMIN' | 'USER' | 'ACCOUNTANT' }
+ * Requires: ADMIN role (can invite OWNERs) or OWNER role (can invite EMPLOYEEs)
+ * Body: { email: string, role: 'OWNER' | 'EMPLOYEE' | 'ACCOUNTANT' }
  * Returns: Created invitation object (token excluded)
  */
 export async function POST(request: NextRequest) {
   try {
-    // Require admin access
-    const admin = await requireAdmin();
+    // Get current user (could be ADMIN or OWNER)
+    const currentUser = await getCurrentUser();
 
-    // Get admin's organization
-    const adminUser = await prisma.user.findUnique({
-      where: { id: admin.id },
-      select: { organizationId: true, organization: true },
+    if (!currentUser) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Get user's full details including organization
+    const user = await prisma.user.findUnique({
+      where: { id: currentUser.id },
+      select: {
+        id: true,
+        role: true,
+        organizationId: true,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            plan: true,
+          }
+        }
+      },
     });
 
-    if (!adminUser?.organizationId) {
+    if (!user) {
       return NextResponse.json(
-        { error: 'Admin must belong to an organization' },
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check if user has permission to invite
+    if (!canInviteUsers(user.role)) {
+      return NextResponse.json(
+        { error: 'Only OWNER role can invite users' },
+        { status: 403 }
+      );
+    }
+
+    if (!user.organizationId || !user.organization) {
+      return NextResponse.json(
+        { error: 'User must belong to an organization' },
         { status: 400 }
       );
     }
@@ -153,11 +205,30 @@ export async function POST(request: NextRequest) {
 
     const { email, role } = validation.data;
 
+    // Role-based authorization checks
+    if (user.role === 'OWNER') {
+      // OWNERs can only invite EMPLOYEEs
+      if (role !== 'EMPLOYEE') {
+        return NextResponse.json(
+          { error: 'Organization owners can only invite employees' },
+          { status: 403 }
+        );
+      }
+    } else if (user.role === 'ADMIN') {
+      // ADMINs can invite OWNERs or other ADMINs (but typically invite OWNERs for orgs)
+      if (role === 'EMPLOYEE') {
+        return NextResponse.json(
+          { error: 'Admins cannot directly invite employees. Employees must be invited by organization owners.' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Check if user already exists in the organization
     const existingUser = await prisma.user.findFirst({
       where: {
         email,
-        organizationId: adminUser.organizationId,
+        organizationId: user.organizationId,
       },
     });
 
@@ -172,7 +243,7 @@ export async function POST(request: NextRequest) {
     const existingInvitation = await prisma.invitation.findFirst({
       where: {
         email,
-        organizationId: adminUser.organizationId,
+        organizationId: user.organizationId,
         status: 'PENDING',
       },
     });
@@ -184,15 +255,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check organization user limits
-    if (adminUser.organization) {
+    // Check plan-based user limits (only for EMPLOYEE invitations)
+    if (role === 'EMPLOYEE') {
       const currentUserCount = await prisma.user.count({
-        where: { organizationId: adminUser.organizationId },
+        where: {
+          organizationId: user.organizationId,
+          isActive: true,
+        },
       });
 
-      if (currentUserCount >= adminUser.organization.maxUsers) {
+      // Count pending invitations for employees
+      const pendingInvitationsCount = await prisma.invitation.count({
+        where: {
+          organizationId: user.organizationId,
+          status: 'PENDING',
+          role: 'EMPLOYEE',
+        },
+      });
+
+      const totalSlots = currentUserCount + pendingInvitationsCount;
+
+      if (!canInviteMoreUsers(totalSlots, user.organization.plan)) {
+        const remaining = getRemainingInvitations(totalSlots, user.organization.plan);
         return NextResponse.json(
-          { error: `Organization has reached maximum user limit (${adminUser.organization.maxUsers})` },
+          {
+            error: `Organization has reached maximum user limit for ${user.organization.plan} plan`,
+            details: {
+              currentUsers: currentUserCount,
+              pendingInvitations: pendingInvitationsCount,
+              remaining,
+              plan: user.organization.plan,
+            }
+          },
           { status: 403 }
         );
       }
@@ -207,8 +301,8 @@ export async function POST(request: NextRequest) {
       data: {
         email,
         role: role as Role,
-        organizationId: adminUser.organizationId,
-        invitedBy: admin.id,
+        organizationId: user.organizationId,
+        invitedBy: user.id,
         token,
         expiresAt,
         status: 'PENDING',
@@ -236,12 +330,12 @@ export async function POST(request: NextRequest) {
 
         // Get inviter name
         const inviter = await prisma.user.findUnique({
-          where: { id: admin.id },
-          select: { firstName: true, lastName: true, email: true },
+          where: { id: user.id },
+          select: { name: true, email: true },
         });
 
         const inviterName = inviter
-          ? `${inviter.firstName} ${inviter.lastName}`.trim() || inviter.email
+          ? inviter.name || inviter.email
           : undefined;
 
         const emailResult = await sendInvitationEmail({

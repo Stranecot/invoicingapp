@@ -3,7 +3,7 @@
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@invoice-app/auth';
+import { useAuth } from '@invoice-app/auth/client';
 
 interface HeaderProps {
   title: string;
@@ -13,7 +13,7 @@ interface HeaderProps {
 }
 
 export function Header({ title, description, action, showUserInfo = false }: HeaderProps) {
-  const { user, clerkUser } = useAuth();
+  const { user } = useAuth();
 
   const getRoleBadgeColor = (role?: string | null) => {
     switch (role) {
@@ -58,9 +58,9 @@ export function Header({ title, description, action, showUserInfo = false }: Hea
               {description && (
                 <p className="text-sm text-gray-600 mt-1">{description}</p>
               )}
-              {showUserInfo && (user?.name || clerkUser?.fullName) && (
+              {showUserInfo && user?.name && (
                 <p className="text-xs text-gray-500 mt-1">
-                  {user?.name || clerkUser?.fullName}
+                  {user.name}
                 </p>
               )}
             </div>

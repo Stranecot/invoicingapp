@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAdminAuth } from '@/lib/auth';
-import { prisma, BillingPlan, OrgStatus } from '@invoice-app/database';
+import { prisma, BillingPlan, OrgStatus, getMaxUsersForPlan } from '@invoice-app/database';
 import { z } from 'zod';
 
 // GET /api/admin/organizations/[id] - Get single organization
@@ -46,8 +46,9 @@ const updateOrgSchema = z.object({
   slug: z.string().min(2).max(100).regex(/^[a-z0-9-]+$/).optional(),
   billingEmail: z.string().email().optional(),
   plan: z.nativeEnum(BillingPlan).optional(),
+  planId: z.string().optional(), // New field for subscription plan
   status: z.nativeEnum(OrgStatus).optional(),
-  maxUsers: z.number().min(1).max(10000).optional(),
+  maxUsers: z.number().min(1).max(1000000).optional(),
   logo: z.string().url().optional().or(z.literal('')),
 });
 
@@ -83,12 +84,29 @@ export const PATCH = withAdminAuth(async (req: NextRequest, user, context?: { pa
       }
     }
 
+    // If plan is being updated, automatically sync maxUsers unless explicitly overridden
+    const updateData = { ...data };
+
+    // If planId is being updated, fetch the plan and sync maxUsers
+    if (data.planId && !data.maxUsers) {
+      const selectedPlan = await prisma.subscriptionPlan.findUnique({
+        where: { id: data.planId },
+      });
+      if (selectedPlan) {
+        updateData.maxUsers = selectedPlan.maxUsers;
+      }
+    } else if (data.plan && !data.maxUsers) {
+      // Fallback to legacy plan enum
+      updateData.maxUsers = getMaxUsersForPlan(data.plan);
+    }
+
     // Update organization
     const organization = await prisma.organization.update({
       where: { id: params.id },
-      data,
+      data: updateData,
       include: {
         settings: true,
+        subscriptionPlan: true,
         _count: {
           select: {
             users: true,

@@ -15,7 +15,8 @@ Administrative dashboard for the Invoice App platform. This application allows s
 - **Framework**: Next.js 15 with App Router
 - **Language**: TypeScript 5
 - **Styling**: Tailwind CSS 4
-- **Authentication**: Clerk
+- **Authentication**: JWT with bcryptjs
+- **Database**: PostgreSQL with Prisma
 - **UI Components**: Custom Shadcn-style components
 - **Icons**: Lucide React
 
@@ -72,8 +73,8 @@ cp .env.example .env
 
 Required environment variables:
 
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - Clerk publishable key
-- `CLERK_SECRET_KEY` - Clerk secret key
+- `JWT_SECRET` - Secret key for JWT signing (generate with: openssl rand -base64 32)
+- `JWT_EXPIRES_IN` - Token expiration time (default: 7d)
 - `DATABASE_URL` - Database connection string
 - `RESEND_API_KEY` - Resend API key for email service
 - `APP_URL` - Application URL (http://localhost:3002 for development)

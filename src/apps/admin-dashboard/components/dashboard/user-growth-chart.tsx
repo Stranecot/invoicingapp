@@ -146,22 +146,22 @@ export function UserGrowthChart({ data, loading = false }: UserGrowthChartProps)
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-200">
-            <div>
-              <p className="text-xs text-gray-600">Total Signups</p>
-              <p className="text-lg font-semibold text-gray-900">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 pt-4 border-t border-gray-200">
+            <div className="text-center sm:text-left">
+              <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Total Signups</p>
+              <p className="text-base sm:text-lg font-semibold text-gray-900">
                 {formatNumber(data.reduce((sum, d) => sum + d.count, 0))}
               </p>
             </div>
-            <div>
-              <p className="text-xs text-gray-600">Peak Day</p>
-              <p className="text-lg font-semibold text-gray-900">
+            <div className="text-center sm:text-left">
+              <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Peak Day</p>
+              <p className="text-base sm:text-lg font-semibold text-gray-900">
                 {formatNumber(maxDaily)}
               </p>
             </div>
-            <div>
-              <p className="text-xs text-gray-600">Active Days</p>
-              <p className="text-lg font-semibold text-gray-900">
+            <div className="text-center sm:text-left">
+              <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Active Days</p>
+              <p className="text-base sm:text-lg font-semibold text-gray-900">
                 {formatNumber(data.filter((d) => d.count > 0).length)}
               </p>
             </div>

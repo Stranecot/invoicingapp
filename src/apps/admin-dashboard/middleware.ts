@@ -1,41 +1,54 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { prisma } from '@invoice-app/database';
+import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
-const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/unauthorized']);
+const PUBLIC_ROUTES = ['/sign-in', '/sign-up', '/unauthorized', '/api/auth/login', '/api/auth/register'];
 
-export default clerkMiddleware(async (auth, req) => {
-  const { userId } = await auth();
+async function verifyAuth(token: string): Promise<boolean> {
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+    if (!secret) return false;
 
-  // If the user is not authenticated and the route is not public, redirect to sign-in
-  if (!isPublicRoute(req) && !userId) {
-    return NextResponse.redirect(new URL('/sign-in', req.url));
+    const { payload } = await jwtVerify(token, secret);
+    return !!payload;
+  } catch {
+    return false;
+  }
+}
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Allow public routes
+  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
+    return NextResponse.next();
   }
 
-  // If authenticated, check if user has ADMIN role
-  if (userId && !isPublicRoute(req)) {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { clerkId: userId },
-        select: { role: true },
-      });
+  // Get auth token from cookies
+  const token = request.cookies.get('auth_token')?.value;
 
-      // If user doesn't exist or is not an admin, redirect to unauthorized page
-      if (!user || user.role !== 'ADMIN') {
-        console.log(`Unauthorized access attempt by user ${userId} with role ${user?.role || 'unknown'}`);
-        return NextResponse.redirect(new URL('/unauthorized', req.url));
-      }
-
-      // User is admin, allow access
-      console.log(`Admin access granted for user ${userId}`);
-    } catch (error) {
-      console.error('Error checking user role in middleware:', error);
-      return NextResponse.redirect(new URL('/unauthorized', req.url));
-    }
+  // If no token, redirect to sign-in
+  if (!token) {
+    const signInUrl = new URL('/sign-in', request.url);
+    signInUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(signInUrl);
   }
+
+  // Verify the token
+  const isValid = await verifyAuth(token);
+
+  if (!isValid) {
+    const signInUrl = new URL('/sign-in', request.url);
+    signInUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(signInUrl);
+  }
+
+  // For admin dashboard, verify user has ADMIN role
+  // Note: The role check is done in the auth package's requireAdmin function
+  // This middleware just ensures they're authenticated
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [

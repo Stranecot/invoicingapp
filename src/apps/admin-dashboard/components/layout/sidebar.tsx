@@ -1,21 +1,25 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { navItems } from './nav-items';
-import dynamic from 'next/dynamic';
-import { useAuth } from '@invoice-app/auth';
+import { useAuth } from '@invoice-app/auth/client';
 import { Badge } from '@/components/ui/badge';
-
-// Dynamically import UserButton to avoid SSR issues
-const UserButton = dynamic(
-  () => import('@clerk/nextjs').then((mod) => mod.UserButton),
-  { ssr: false }
-);
+import { LogOut, User } from 'lucide-react';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, clerkUser } = useAuth();
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const handleSignOut = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.push('/sign-in');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
 
   const getRoleBadgeColor = (role?: string | null) => {
     switch (role) {
@@ -43,7 +47,10 @@ export function Sidebar() {
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
+            // For root path, only match exactly. For others, match prefix too
+            const isActive = item.href === '/'
+              ? pathname === '/'
+              : pathname === item.href || pathname?.startsWith(item.href + '/');
 
             return (
               <Link
@@ -65,17 +72,12 @@ export function Sidebar() {
         {/* User Info */}
         <div className="p-6 border-t border-gray-800">
           <div className="flex items-center gap-3 mb-4">
-            <UserButton
-              afterSignOutUrl="/sign-in"
-              appearance={{
-                elements: {
-                  avatarBox: "w-10 h-10"
-                }
-              }}
-            />
+            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
+              {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || <User className="w-5 h-5" />}
+            </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">
-                {user?.name || clerkUser?.fullName || 'Admin User'}
+                {user?.name || 'Admin User'}
               </p>
               <div className="flex items-center gap-2 mt-1">
                 {user?.role && (
@@ -89,7 +91,14 @@ export function Sidebar() {
               )}
             </div>
           </div>
-          <p className="text-xs text-gray-500">Admin Dashboard v1.0</p>
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+          <p className="text-xs text-gray-500 mt-4">Admin Dashboard v1.0</p>
         </div>
       </div>
     </aside>

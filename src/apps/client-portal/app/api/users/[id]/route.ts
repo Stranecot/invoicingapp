@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, Role } from '@invoice-app/database';
-import { requireAdmin, getCurrentUser } from '@invoice-app/auth';
-import { clerkClient } from '@clerk/nextjs/server';
+import { requireAdmin, getCurrentUser } from '@invoice-app/auth/server';
 
 /**
  * GET /api/users/[id]
@@ -261,7 +260,6 @@ export async function DELETE(
       where: { id },
       select: {
         id: true,
-        clerkId: true,
         email: true,
         role: true,
         isActive: true,
@@ -315,15 +313,6 @@ export async function DELETE(
       where: { id },
       data: { isActive: false },
     });
-
-    // Also delete from Clerk
-    try {
-      const client = await clerkClient();
-      await client.users.deleteUser(user.clerkId);
-    } catch (clerkError) {
-      console.error('Error deleting user from Clerk:', clerkError);
-      // Continue even if Clerk deletion fails
-    }
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

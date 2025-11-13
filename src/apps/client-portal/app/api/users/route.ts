@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, Role } from '@invoice-app/database';
-import { requireAdmin } from '@invoice-app/auth';
+import { requireAdmin } from '@invoice-app/auth/server';
 
 /**
  * GET /api/users
@@ -16,7 +16,25 @@ import { requireAdmin } from '@invoice-app/auth';
  */
 export async function GET(request: NextRequest) {
   try {
-    const admin = await requireAdmin();
+    // Allow both ADMIN and OWNER to access this endpoint
+    const { getCurrentUser } = await import('@invoice-app/auth/server');
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    if (user.role !== 'ADMIN' && user.role !== 'OWNER') {
+      return NextResponse.json(
+        { error: 'Forbidden: Admin or Owner access required' },
+        { status: 403 }
+      );
+    }
+
+    const admin = user;
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -76,7 +94,6 @@ export async function GET(request: NextRequest) {
       skip: offset,
       select: {
         id: true,
-        clerkId: true,
         email: true,
         name: true,
         role: true,

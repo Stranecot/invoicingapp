@@ -8,6 +8,7 @@ import { Input } from './ui/input';
 import { Select } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
+import { calculateVAT, getVATRatePercentage } from '@invoice-app/database';
 
 interface Customer {
   id: string;
@@ -92,9 +93,20 @@ export function InvoiceFormSteps({ invoice }: InvoiceFormProps) {
 
   const calculateTotals = () => {
     const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-    const tax = subtotal * ((company?.taxRate || 0) / 100);
+
+    // Use country-specific VAT calculation
+    // If company has country and isVatRegistered, calculate VAT automatically
+    const tax = company?.country && company?.isVatRegistered
+      ? calculateVAT(subtotal, company.country, company.isVatRegistered)
+      : 0;
+
     const total = subtotal + tax;
-    return { subtotal, tax, total };
+    return {
+      subtotal,
+      tax,
+      total,
+      taxRate: company?.country ? getVATRatePercentage(company.country) : 0
+    };
   };
 
   const { subtotal, tax, total } = calculateTotals();

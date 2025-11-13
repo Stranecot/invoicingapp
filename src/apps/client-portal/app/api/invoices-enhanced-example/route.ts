@@ -23,7 +23,7 @@ import {
   logResourceAccess,
   successResponse,
   errorResponse,
-} from '@invoice-app/auth';
+} from '@invoice-app/auth/server';
 
 /**
  * GET /api/invoices

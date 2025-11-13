@@ -16,7 +16,6 @@ export const GET = withAdminAuth(async (req: NextRequest, user) => {
     success: true,
     user: {
       id: user.id,
-      clerkId: user.clerkId,
       email: user.email,
       name: user.name,
       role: user.role,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAdminAuth } from '@/lib/auth';
-import { prisma, BillingPlan, OrgStatus } from '@invoice-app/database';
+import { prisma, BillingPlan, OrgStatus, getMaxUsersForPlan } from '@invoice-app/database';
 import { z } from 'zod';
 
 // GET /api/admin/organizations - List organizations with filters, search, and pagination
@@ -83,7 +83,7 @@ const createOrgSchema = z.object({
   billingEmail: z.string().email(),
   plan: z.nativeEnum(BillingPlan),
   status: z.nativeEnum(OrgStatus),
-  maxUsers: z.number().min(1).max(10000),
+  maxUsers: z.number().min(1).max(1000000).optional(),
 });
 
 export const POST = withAdminAuth(async (req: NextRequest) => {
@@ -103,6 +103,9 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
       );
     }
 
+    // Auto-calculate maxUsers based on plan if not provided
+    const maxUsers = data.maxUsers ?? getMaxUsersForPlan(data.plan);
+
     // Create organization and default settings
     const organization = await prisma.organization.create({
       data: {
@@ -111,7 +114,7 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
         billingEmail: data.billingEmail,
         plan: data.plan,
         status: data.status,
-        maxUsers: data.maxUsers,
+        maxUsers,
         settings: {
           create: {
             primaryColor: '#3B82F6',

@@ -1,111 +1,184 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
+import { cookies } from 'next/headers';
+import { SignJWT, jwtVerify } from 'jose';
+import bcrypt from 'bcryptjs';
 import { prisma, Role } from '@invoice-app/database';
 
 export type UserWithRole = {
   id: string;
-  clerkId: string;
   email: string;
   name: string | null;
   role: Role;
   organizationId?: string | null;
+  emailVerified?: boolean;
 };
+
+export type JWTPayload = {
+  userId: string;
+  email: string;
+  role: Role;
+  organizationId?: string | null;
+  iat: number;
+  exp: number;
+};
+
+// ============================================================================
+// Password Hashing Utilities
+// ============================================================================
+
+/**
+ * Hash a password using bcrypt
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const rounds = parseInt(process.env.BCRYPT_ROUNDS || '10', 10);
+  return bcrypt.hash(password, rounds);
+}
+
+/**
+ * Verify a password against a hash
+ */
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
+}
+
+// ============================================================================
+// JWT Token Management
+// ============================================================================
+
+/**
+ * Generate a JWT token for a user
+ */
+export async function generateJWT(user: {
+  id: string;
+  email: string;
+  role: Role;
+  organizationId?: string | null;
+}): Promise<string> {
+  const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+
+  if (!secret || process.env.JWT_SECRET === 'your-super-secret-jwt-key-min-32-chars-generate-with-openssl-rand-base64-32') {
+    throw new Error('JWT_SECRET is not configured. Please set a secure JWT_SECRET in your environment variables.');
+  }
+
+  const jwt = await new SignJWT({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    organizationId: user.organizationId,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(process.env.JWT_EXPIRES_IN || '7d')
+    .sign(secret);
+
+  return jwt;
+}
+
+/**
+ * Verify and decode a JWT token
+ */
+export async function verifyJWT(token: string): Promise<JWTPayload> {
+  const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+
+  if (!secret) {
+    throw new Error('JWT_SECRET is not configured');
+  }
+
+  const { payload } = await jwtVerify(token, secret);
+  return payload as unknown as JWTPayload;
+}
+
+/**
+ * Get JWT token from cookies
+ */
+async function getTokenFromCookies(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('auth_token')?.value;
+  return token || null;
+}
+
+// ============================================================================
+// User Authentication
+// ============================================================================
 
 /**
  * Get the current authenticated user from the database
- * Throws an error if not authenticated
- * Auto-creates user if they exist in Clerk but not in database
+ * Returns null if not authenticated
  */
-export async function getCurrentUser(): Promise<UserWithRole> {
-  const { userId } = await auth();
+export async function getCurrentUser(): Promise<UserWithRole | null> {
+  try {
+    const token = await getTokenFromCookies();
 
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
-
-  let user = await prisma.user.findUnique({
-    where: { clerkId: userId },
-    select: {
-      id: true,
-      clerkId: true,
-      email: true,
-      name: true,
-      role: true,
-      organizationId: true,
-    },
-  });
-
-  // If user doesn't exist in database but is authenticated in Clerk,
-  // create them automatically (webhook might have failed)
-  if (!user) {
-    const clerkUser = await currentUser();
-
-    if (!clerkUser) {
-      throw new Error('Unauthorized');
+    if (!token) {
+      return null;
     }
 
-    const primaryEmail = clerkUser.emailAddresses.find(
-      (email) => email.id === clerkUser.primaryEmailAddressId
-    );
+    const payload = await verifyJWT(token);
 
-    if (!primaryEmail) {
-      throw new Error('No primary email found');
-    }
-
-    // Create user with default company
-    const createdUser = await prisma.user.create({
-      data: {
-        clerkId: userId,
-        email: primaryEmail.emailAddress,
-        name: clerkUser.firstName && clerkUser.lastName
-          ? `${clerkUser.firstName} ${clerkUser.lastName}`
-          : clerkUser.firstName || clerkUser.lastName || null,
-        role: 'USER',
-        company: {
-          create: {
-            name: 'My Company',
-            email: primaryEmail.emailAddress,
-            taxRate: 0,
-          },
-        },
-      },
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
       select: {
         id: true,
-        clerkId: true,
         email: true,
         name: true,
         role: true,
         organizationId: true,
+        emailVerified: true,
+        isActive: true,
       },
     });
 
-    console.log('Auto-created user from Clerk:', createdUser.email);
-    return createdUser;
-  }
+    if (!user || !user.isActive) {
+      return null;
+    }
 
-  return user;
+    // Update last login timestamp
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      organizationId: user.organizationId,
+      emailVerified: user.emailVerified,
+    };
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
 }
 
 /**
  * Get the current user or null if not authenticated
  */
 export async function getCurrentUserOrNull(): Promise<UserWithRole | null> {
-  try {
-    return await getCurrentUser();
-  } catch {
-    return null;
-  }
+  return getCurrentUser();
 }
+
+/**
+ * Require authentication, throws error if not authenticated
+ */
+export async function requireAuth(): Promise<UserWithRole> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error('Unauthorized');
+  }
+  return user;
+}
+
+// ============================================================================
+// Role Checks
+// ============================================================================
 
 /**
  * Check if the current user has a specific role
  */
 export async function hasRole(role: Role): Promise<boolean> {
-  try {
-    const user = await getCurrentUser();
-    return user.role === role;
-  } catch {
-    return false;
-  }
+  const user = await getCurrentUser();
+  return user ? user.role === role : false;
 }
 
 /**
@@ -133,7 +206,7 @@ export async function isUser(): Promise<boolean> {
  * Require admin role, throws error if not admin
  */
 export async function requireAdmin(): Promise<UserWithRole> {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
   if (user.role !== 'ADMIN') {
     throw new Error('Forbidden: Admin access required');
   }
@@ -144,22 +217,27 @@ export async function requireAdmin(): Promise<UserWithRole> {
  * Require accountant or admin role
  */
 export async function requireAccountantOrAdmin(): Promise<UserWithRole> {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
   if (user.role !== 'ACCOUNTANT' && user.role !== 'ADMIN') {
     throw new Error('Forbidden: Accountant or Admin access required');
   }
   return user;
 }
 
+// ============================================================================
+// Customer Access Control
+// ============================================================================
+
 /**
  * Check if the current user can access a specific customer's data
- * - Admins can access all customers in their organization
- * - Users can access their own customers in their organization
+ * - Admins and Owners can access all customers in their organization
+ * - Users and Employees can access their own customers in their organization
  * - Accountants can access assigned customers in their organization
  * CRITICAL SECURITY: Now includes organization check for multi-tenant isolation
  */
 export async function canAccessCustomer(customerId: string): Promise<boolean> {
   const user = await getCurrentUser();
+  if (!user) return false;
 
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
@@ -179,13 +257,13 @@ export async function canAccessCustomer(customerId: string): Promise<boolean> {
     return false;
   }
 
-  // Admin can access all customers in their organization
-  if (user.role === 'ADMIN') {
+  // Admin and Owner can access all customers in their organization
+  if (user.role === 'ADMIN' || user.role === 'OWNER') {
     return true;
   }
 
-  // User can access their own customers
-  if (user.role === 'USER' && customer.userId === user.id) {
+  // User and Employee can access their own customers
+  if ((user.role === 'USER' || user.role === 'EMPLOYEE') && customer.userId === user.id) {
     return true;
   }
 
@@ -202,12 +280,13 @@ export async function canAccessCustomer(customerId: string): Promise<boolean> {
  * IMPORTANT: This now includes organization filtering for multi-tenant security
  */
 export async function getAccessibleCustomerIds(): Promise<string[]> {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
 
   // All queries must be scoped to user's organization
   const orgFilter = user.organizationId ? { organizationId: user.organizationId } : {};
 
-  if (user.role === 'ADMIN') {
+  if (user.role === 'ADMIN' || user.role === 'OWNER') {
+    // Admin and Owner see all customers in their organization
     const customers = await prisma.customer.findMany({
       where: orgFilter,
       select: { id: true },
@@ -215,7 +294,8 @@ export async function getAccessibleCustomerIds(): Promise<string[]> {
     return customers.map((c) => c.id);
   }
 
-  if (user.role === 'USER') {
+  if (user.role === 'USER' || user.role === 'EMPLOYEE') {
+    // User and Employee see only their own customers
     const customers = await prisma.customer.findMany({
       where: {
         userId: user.id,
@@ -237,23 +317,28 @@ export async function getAccessibleCustomerIds(): Promise<string[]> {
   return [];
 }
 
+// ============================================================================
+// Organization Filtering (Multi-tenancy)
+// ============================================================================
+
 /**
  * Build a Prisma where clause for filtering data by user access
  * Returns an object that can be spread into a Prisma where clause
  * CRITICAL SECURITY: Now includes organization filtering for multi-tenant isolation
  */
 export async function getUserAccessFilter() {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
 
   // Organization filter is mandatory for all roles
   const orgFilter = user.organizationId ? { organizationId: user.organizationId } : {};
 
-  if (user.role === 'ADMIN') {
-    // Admin sees all data within their organization only
+  if (user.role === 'ADMIN' || user.role === 'OWNER') {
+    // Admin and Owner see all data within their organization only
     return orgFilter;
   }
 
-  if (user.role === 'USER') {
+  if (user.role === 'USER' || user.role === 'EMPLOYEE') {
+    // User and Employee see only their own data
     return {
       userId: user.id,
       ...orgFilter,
@@ -278,7 +363,7 @@ export async function getUserAccessFilter() {
  * Get the current user's organization
  */
 export async function getCurrentUserOrg() {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
 
   if (!user.organizationId) {
     return null;
@@ -305,7 +390,7 @@ export async function getCurrentUserOrg() {
  */
 export async function checkPermission(permission: string): Promise<boolean> {
   try {
-    const user = await getCurrentUser();
+    const user = await requireAuth();
     const { roleHasPermission } = await import('./permissions');
     // Type assertion needed because permission is a string
     return roleHasPermission(user.role, permission as any);
@@ -320,7 +405,7 @@ export async function checkPermission(permission: string): Promise<boolean> {
  * Returns empty object if user has no organization (for backwards compatibility)
  */
 export async function getOrgFilter(): Promise<{ organizationId?: string }> {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
   return user.organizationId ? { organizationId: user.organizationId } : {};
 }
 
@@ -340,7 +425,7 @@ export async function withOrgFilter<T extends Record<string, any>>(where: T = {}
  * Throws error if user doesn't have an organizationId
  */
 export async function requireOrganization(): Promise<string> {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
   if (!user.organizationId) {
     throw new Error('User must belong to an organization');
   }
@@ -352,7 +437,7 @@ export async function requireOrganization(): Promise<string> {
  * CRITICAL SECURITY: Use this to verify organization ownership before operations
  */
 export async function isInUserOrganization(resourceOrgId: string | null | undefined): Promise<boolean> {
-  const user = await getCurrentUser();
+  const user = await requireAuth();
 
   // If user has no org, they can only access resources with no org (legacy data)
   if (!user.organizationId) {

@@ -27,9 +27,18 @@ export async function GET(
       );
     }
 
-    // Check access: Admin can see all, User can see their own, Accountant can see assigned customers
+    // CRITICAL SECURITY: Invoice must belong to user's organization
+    if (user.organizationId && invoice.organizationId !== user.organizationId) {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have access to this invoice' },
+        { status: 403 }
+      );
+    }
+
+    // Check access: Admin/Owner can see all, User/Employee can see their own, Accountant can see assigned customers
     const hasAccess = user.role === 'ADMIN' ||
-                      (user.role === 'USER' && invoice.userId === user.id) ||
+                      user.role === 'OWNER' ||
+                      ((user.role === 'USER' || user.role === 'EMPLOYEE') && invoice.userId === user.id) ||
                       (user.role === 'ACCOUNTANT' && await canAccessCustomer(invoice.customerId));
 
     if (!hasAccess) {
@@ -41,7 +50,8 @@ export async function GET(
 
     // Fetch company data - get the user's company
     let company;
-    if (user.role === 'ADMIN') {
+    if (user.role === 'ADMIN' || user.role === 'OWNER') {
+      // Admin and Owner can fetch any company in their org
       company = await prisma.company.findUnique({
         where: { userId: invoice.userId },
       });

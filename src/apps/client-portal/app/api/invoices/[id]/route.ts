@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser, canAccessCustomer } from '@invoice-app/auth/server';
+import { determineVATRule, calculateInvoiceWithVAT, validateInvoicePrerequisites } from '@invoice-app/database';
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +16,7 @@ export async function GET(
       include: {
         customer: true,
         items: true,
-        user: user.role === 'ADMIN' || user.role === 'ACCOUNTANT' ? {
+        user: user.role === 'ADMIN' || user.role === 'OWNER' || user.role === 'ACCOUNTANT' ? {
           select: {
             name: true,
             email: true,
@@ -36,9 +37,10 @@ export async function GET(
       );
     }
 
-    // Check access: Admin can see all, User can see their own, Accountant can see assigned customers
+    // Check access: Admin/Owner can see all, User/Employee can see their own, Accountant can see assigned customers
     const hasAccess = user.role === 'ADMIN' ||
-                      (user.role === 'USER' && invoice.userId === user.id) ||
+                      user.role === 'OWNER' ||
+                      ((user.role === 'USER' || user.role === 'EMPLOYEE') && invoice.userId === user.id) ||
                       (user.role === 'ACCOUNTANT' && await canAccessCustomer(invoice.customerId));
 
     if (!hasAccess) {
@@ -117,16 +119,16 @@ export async function PUT(
       return NextResponse.json(invoice);
     }
 
-    // Users can only edit their own invoices
-    if (user.role === 'USER' && currentInvoice.userId !== user.id) {
+    // Users and Employees can only edit their own invoices (Owners and Admins can edit all)
+    if ((user.role === 'USER' || user.role === 'EMPLOYEE') && currentInvoice.userId !== user.id) {
       return NextResponse.json(
         { error: 'Forbidden: You can only edit your own invoices' },
         { status: 403 }
       );
     }
 
-    // Only allow editing for draft and sent invoices (for users)
-    if (user.role === 'USER' && currentInvoice.status !== 'draft' && currentInvoice.status !== 'sent') {
+    // Only allow editing for draft and sent invoices (for users and employees)
+    if ((user.role === 'USER' || user.role === 'EMPLOYEE') && currentInvoice.status !== 'draft' && currentInvoice.status !== 'sent') {
       return NextResponse.json(
         { error: `Cannot edit invoice with status "${currentInvoice.status}". Only draft and sent invoices can be edited.` },
         { status: 403 }
@@ -137,8 +139,78 @@ export async function PUT(
     delete invoiceData.userId;
     delete invoiceData.organizationId;
 
-    // Delete existing items and create new ones if items are provided
+    // Fetch customer and organization for VAT calculation (if items are being updated)
+    let vatCalculation = null;
+    let vatRule = null;
+    let processedItems = items;
+
     if (items) {
+      const customer = await prisma.customer.findUnique({
+        where: { id: invoiceData.customerId || currentInvoice.customerId },
+        select: {
+          country: true,
+          vatNumber: true,
+          vatNumberValidated: true,
+          isBusiness: true,
+        },
+      });
+
+      const organization = await prisma.organization.findUnique({
+        where: { id: user.organizationId || undefined },
+        select: {
+          country: true,
+          vatNumber: true,
+        },
+      });
+
+      // Automatic VAT calculation if both organization and customer have countries
+      if (organization?.country && customer?.country) {
+        try {
+          // Determine VAT rule
+          vatRule = await determineVATRule(
+            {
+              country: organization.country,
+              isVatRegistered: !!organization.vatNumber,
+            },
+            {
+              country: customer.country,
+              vatNumber: customer.vatNumber,
+              vatNumberValidated: customer.vatNumberValidated,
+              isBusiness: customer.isBusiness,
+            }
+          );
+
+          // Validate prerequisites
+          const validation = validateInvoicePrerequisites(vatRule, customer, organization);
+          if (!validation.valid) {
+            return NextResponse.json(
+              {
+                error: 'VAT validation failed',
+                errors: validation.errors,
+                warnings: validation.warnings,
+              },
+              { status: 400 }
+            );
+          }
+
+          // Calculate invoice with VAT if items have vatCategoryCode
+          const itemsHaveCategories = items.every((item: any) => item.vatCategoryCode);
+          if (itemsHaveCategories) {
+            vatCalculation = await calculateInvoiceWithVAT(items, vatRule, invoiceData.date ? new Date(invoiceData.date) : new Date());
+            processedItems = vatCalculation.lineItems;
+          }
+
+          console.log('VAT Rule applied on update:', vatRule.rule, '- Scenario:', vatRule.scenario);
+          if (validation.warnings.length > 0) {
+            console.warn('VAT Warnings:', validation.warnings);
+          }
+        } catch (vatError) {
+          console.error('VAT calculation error (non-fatal):', vatError);
+          // Continue with invoice update without VAT if calculation fails
+        }
+      }
+
+      // Delete existing items
       await prisma.invoiceItem.deleteMany({
         where: { invoiceId: id },
       });
@@ -148,9 +220,23 @@ export async function PUT(
       where: { id },
       data: {
         ...invoiceData,
+        // Add VAT information if calculated
+        ...(vatRule && {
+          vatRule: vatRule.rule,
+          vatScenario: vatRule.scenario,
+          isReverseCharge: vatRule.reverseCharge,
+          isExport: vatRule.isExport || false,
+          requiresEcSalesList: vatRule.requiresECSalesList || false,
+          requiresExportDocs: vatRule.requiresExportDocumentation || false,
+          vatNote: vatRule.note,
+        }),
+        ...(vatCalculation && {
+          isMixedVatRates: vatCalculation.isMixedVatRates,
+          vatBreakdown: JSON.stringify(vatCalculation.vatBreakdown),
+        }),
         ...(items && {
           items: {
-            create: items,
+            create: processedItems,
           },
         }),
       },
@@ -203,8 +289,8 @@ export async function DELETE(
       );
     }
 
-    // Users can only delete their own invoices
-    if (user.role === 'USER' && invoice.userId !== user.id) {
+    // Users and Employees can only delete their own invoices (Owners and Admins can delete all)
+    if ((user.role === 'USER' || user.role === 'EMPLOYEE') && invoice.userId !== user.id) {
       return NextResponse.json(
         { error: 'Forbidden: You can only delete your own invoices' },
         { status: 403 }

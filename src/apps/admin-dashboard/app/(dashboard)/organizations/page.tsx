@@ -253,6 +253,7 @@ export default function OrganizationsPage() {
       <CreateOrganizationDialog
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
+        onSuccess={fetchOrganizations}
       />
     </div>
   );

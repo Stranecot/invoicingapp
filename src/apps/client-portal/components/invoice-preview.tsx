@@ -22,7 +22,7 @@ interface InvoicePreviewProps {
     email: string;
     phone?: string;
     address?: string;
-    taxRate: number;
+    taxRate?: number;
   } | null;
   items: Array<{
     description: string;
@@ -30,15 +30,28 @@ interface InvoicePreviewProps {
     unitPrice: number;
     total: number;
   }>;
+  vatInfo?: {
+    rule?: string;
+    effectiveRate?: number;
+  } | null;
 }
 
-export function InvoicePreview({ invoiceData, customerData, companyData, items }: InvoicePreviewProps) {
+export function InvoicePreview({ invoiceData, customerData, companyData, items, vatInfo }: InvoicePreviewProps) {
   const statusColors = {
     draft: 'bg-gray-200 text-gray-900',
     sent: 'bg-blue-200 text-blue-900',
     paid: 'bg-green-200 text-green-900',
     overdue: 'bg-red-200 text-red-900',
   };
+
+  // Calculate effective VAT rate from tax and subtotal
+  const effectiveVatRate = invoiceData.subtotal > 0
+    ? ((invoiceData.tax / invoiceData.subtotal) * 100).toFixed(1)
+    : '0';
+
+  const displayVatRate = vatInfo?.effectiveRate !== undefined
+    ? vatInfo.effectiveRate.toFixed(1)
+    : effectiveVatRate;
 
   if (!companyData) {
     return (
@@ -176,7 +189,7 @@ export function InvoicePreview({ invoiceData, customerData, companyData, items }
             <span className="font-medium text-gray-900">{formatCurrency(invoiceData.subtotal)}</span>
           </div>
           <div className="flex justify-between py-2">
-            <span className="text-gray-600">Tax ({companyData.taxRate}%):</span>
+            <span className="text-gray-600">VAT ({displayVatRate}%):</span>
             <span className="font-medium text-gray-900">{formatCurrency(invoiceData.tax)}</span>
           </div>
           <div className="flex justify-between py-3 px-4 bg-blue-700 text-white rounded-lg">

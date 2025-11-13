@@ -93,8 +93,8 @@ function AcceptInvitationContent() {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Redirect to Clerk sign-up with pre-filled email
-        window.location.href = data.redirectUrl;
+        // Redirect to signup page with token to complete registration
+        router.push(`/signup?token=${token}`);
       } else {
         // Handle error
         switch (data.reason) {
